@@ -1,0 +1,17 @@
+{
+  "length": 4,
+  "lowercase": false,
+  "uppercase": false,
+  "digits": true,
+  "symbols": false,
+  "all_chars": false,
+  "custom1": false,
+  "custom2": false,
+  "custom3": false,
+  "custom4": false,
+  "charset1": "",
+  "charset2": "",
+  "charset3": "",
+  "charset4": "",
+  "mask_preview": "?d?d?d?d"
+}

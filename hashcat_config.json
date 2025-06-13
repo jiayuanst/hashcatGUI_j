@@ -1,0 +1,9 @@
+{
+  "john_path": "JohnTheRipper-v1.8.0.12-jumbo-1-bleeding-e6214ceab--2018-02-07--Win-x64\\run",
+  "hashcat_path": "C:/Users/pickc/Downloads/hashcat-6.2.5/hashcat-6.2.6",
+  "mask": "?d?d?d?d",
+  "charset1": "",
+  "charset2": "",
+  "charset3": "",
+  "charset4": ""
+}

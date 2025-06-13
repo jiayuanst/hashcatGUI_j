@@ -1,7 +1,5 @@
 # hashcatGUI_j
-一个图形化界面的hashcat操作助手
-
-# Hashcat GUI 帮助文档
+## 一个图形化界面的hashcat操作助手
 
 ## 基本使用
 

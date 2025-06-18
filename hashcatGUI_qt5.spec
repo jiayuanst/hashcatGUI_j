@@ -5,14 +5,14 @@ a = Analysis(
     ['hashcatGUI_qt5.py'],
     pathex=[],
     binaries=[],
-    datas=[('*.json', './'), ('*.md', './')],
+    datas=[('*.json', './'), ('*.md', './'), ('hashcat.ico', './')],
     hiddenimports=[],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
-    excludes=[],
+    excludes=['tkinter', 'matplotlib'],
     noarchive=False,
-    optimize=0,
+    optimize=2,
 )
 pyz = PYZ(a.pure)
 
@@ -25,7 +25,7 @@ exe = EXE(
     name='hashcatGUI_qt5',
     debug=False,
     bootloader_ignore_signals=False,
-    strip=False,
+    strip=True,
     upx=True,
     upx_exclude=[],
     runtime_tmpdir=None,
@@ -36,4 +36,5 @@ exe = EXE(
     codesign_identity=None,
     entitlements_file=None,
     icon='./hashcat.ico',
+    onefile=True, 
 )

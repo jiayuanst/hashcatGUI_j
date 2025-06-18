@@ -1181,13 +1181,19 @@ class HashcatWorker(QThread):
         function_logger.debug("HashcatWorker.run called")
         try:
             # 使用bytes模式避免编码问题
+            # Windows下隐藏控制台窗口
+            creation_flags = 0
+            if sys.platform == 'win32':
+                creation_flags = subprocess.CREATE_NO_WINDOW
+            
             self.process = subprocess.Popen(
                 self.command,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
                 text=False,  # 使用bytes模式
                 bufsize=0,  # 无缓冲，实时输出
-                cwd=self.working_dir
+                cwd=self.working_dir,
+                creationflags=creation_flags
             )
             
             # 实时读取输出
@@ -1311,9 +1317,20 @@ class HashcatGUI(QMainWindow):
         """设置窗口图标"""
         function_logger.debug("HashcatGUI._setup_window_icon called")
         try:
-            icon_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "hashcat.ico")
+            # 支持打包后的图标路径
+            if getattr(sys, 'frozen', False):
+                # 打包后的环境
+                base_path = sys._MEIPASS
+            else:
+                # 开发环境
+                base_path = os.path.dirname(os.path.abspath(__file__))
+            
+            icon_path = os.path.join(base_path, "hashcat.ico")
             if os.path.exists(icon_path):
                 self.setWindowIcon(QIcon(icon_path))
+                print(f"图标设置成功: {icon_path}")
+            else:
+                print(f"图标文件不存在: {icon_path}")
         except Exception as e:
             print(f"设置图标失败: {e}")
     
@@ -2613,8 +2630,11 @@ class HashcatGUI(QMainWindow):
         if john_exe_path:
             try:
                 # 尝试运行john --help来验证
+                # Windows下隐藏控制台窗口
+                creation_flags = subprocess.CREATE_NO_WINDOW if sys.platform == 'win32' else 0
                 result = subprocess.run([john_exe_path, "--help"], 
-                                      capture_output=True, text=True, timeout=5, encoding='utf-8')
+                                      capture_output=True, text=True, timeout=5, encoding='utf-8',
+                                      creationflags=creation_flags)
                 if result.returncode == 0 or "john" in result.stdout.lower() or "john" in result.stderr.lower():
                     self.config_status_label.setText("✓ John路径验证成功")
                     self.config_status_label.setStyleSheet("color: green;")
@@ -2655,8 +2675,11 @@ class HashcatGUI(QMainWindow):
         if hashcat_exe_path:
             try:
                 # 尝试运行hashcat --version来验证
+                # Windows下隐藏控制台窗口
+                creation_flags = subprocess.CREATE_NO_WINDOW if sys.platform == 'win32' else 0
                 result = subprocess.run([hashcat_exe_path, "--version"], 
-                                      capture_output=True, text=True, timeout=5, encoding='utf-8')
+                                      capture_output=True, text=True, timeout=5, encoding='utf-8',
+                                      creationflags=creation_flags)
                 if result.returncode == 0:
                     version_info = result.stdout.strip() if result.stdout else result.stderr.strip()
                     self.config_status_label.setText(f"✓ Hashcat路径验证成功 ({version_info.split()[0] if version_info else 'Unknown version'})")
@@ -2871,8 +2894,11 @@ class HashcatGUI(QMainWindow):
                     self.log_text.append("✗ Hashcat 路径不存在或无效")
                     return
             
+            # Windows下隐藏控制台窗口
+            creation_flags = subprocess.CREATE_NO_WINDOW if sys.platform == 'win32' else 0
             result = subprocess.run([hashcat_exe_path, "--version"], 
-                                  capture_output=True, text=True, timeout=5, encoding='utf-8')
+                                  capture_output=True, text=True, timeout=5, encoding='utf-8',
+                                  creationflags=creation_flags)
             if result.returncode == 0:
                 self.log_text.append("✓ Hashcat 可用")
             else:
@@ -2935,9 +2961,11 @@ class HashcatGUI(QMainWindow):
             # 确定工作目录为hashcat所在目录
             working_dir = os.path.dirname(hashcat_exe_path)
             
+            # Windows下隐藏控制台窗口
+            creation_flags = subprocess.CREATE_NO_WINDOW if sys.platform == 'win32' else 0
             result = subprocess.run([hashcat_exe_path, '-I'], 
                                   capture_output=True, text=True, 
-                                  creationflags=subprocess.CREATE_NO_WINDOW,
+                                  creationflags=creation_flags,
                                   cwd=working_dir,
                                   timeout=10)
             
@@ -3279,7 +3307,9 @@ class HashcatGUI(QMainWindow):
             if file_ext in python_script_extensions:
                 # Python脚本 - 检查Python是否可用
                 try:
-                    subprocess.run(['python', '--version'], capture_output=True, check=True)
+                    # Windows下隐藏控制台窗口
+                    creation_flags = subprocess.CREATE_NO_WINDOW if sys.platform == 'win32' else 0
+                    subprocess.run(['python', '--version'], capture_output=True, check=True, creationflags=creation_flags)
                     # 为特定的hashcat工具添加必要的参数
                     if is_hashcat_tool:
                         if tool_path.endswith('vmwarevmx2hashcat.py'):
@@ -3302,7 +3332,9 @@ class HashcatGUI(QMainWindow):
             elif file_ext in perl_script_extensions or (file_ext == '.7z' and tool_path.endswith('.pl')):
                 # Perl脚本 - 检查Perl是否可用
                 try:
-                    subprocess.run(['perl', '--version'], capture_output=True, check=True)
+                    # Windows下隐藏控制台窗口
+                    creation_flags = subprocess.CREATE_NO_WINDOW if sys.platform == 'win32' else 0
+                    subprocess.run(['perl', '--version'], capture_output=True, check=True, creationflags=creation_flags)
                     # 为特定的hashcat工具添加必要的参数
                     if is_hashcat_tool:
                         if tool_path.endswith('aescrypt2hashcat.pl'):
@@ -3321,7 +3353,9 @@ class HashcatGUI(QMainWindow):
                         python_pdf_tool = john_exe_path.replace(Config.JOHN_EXE, Config.PDF2JOHN_PY)
                         if os.path.exists(python_pdf_tool):
                             try:
-                                subprocess.run(['python', '--version'], capture_output=True, check=True)
+                                # Windows下隐藏控制台窗口
+                                creation_flags = subprocess.CREATE_NO_WINDOW if sys.platform == 'win32' else 0
+                                subprocess.run(['python', '--version'], capture_output=True, check=True, creationflags=creation_flags)
                                 cmd = ['python', python_pdf_tool, file_path]
                                 tool_path = python_pdf_tool
                             except (subprocess.CalledProcessError, FileNotFoundError):
@@ -3340,8 +3374,11 @@ class HashcatGUI(QMainWindow):
             # 使用绝对路径并设置工作目录，处理编码错误，设置10秒超时防止卡死
             # 在Windows系统中使用系统默认编码来正确处理中文文件名
             system_encoding = locale.getpreferredencoding()
+            # Windows下隐藏控制台窗口
+            creation_flags = subprocess.CREATE_NO_WINDOW if sys.platform == 'win32' else 0
             result = subprocess.run(cmd, capture_output=True, text=True, timeout=10, 
-                                  encoding=system_encoding, errors='replace', cwd=os.path.dirname(tool_path))
+                                  encoding=system_encoding, errors='replace', cwd=os.path.dirname(tool_path),
+                                  creationflags=creation_flags)
             
             # 记录命令执行结果到日志，限制输出长度防止超长内容
             if result.stdout:
@@ -4466,8 +4503,11 @@ class HashcatGUI(QMainWindow):
             self.log_text.append(f"执行命令: {' '.join(show_cmd)}")
             # 使用系统默认编码来正确处理中文文件名和输出
             system_encoding = locale.getpreferredencoding()
+            # Windows下隐藏控制台窗口
+            creation_flags = subprocess.CREATE_NO_WINDOW if sys.platform == 'win32' else 0
             result = subprocess.run(show_cmd, cwd=work_dir, capture_output=True, text=True, 
-                                  timeout=30, encoding=system_encoding, errors='replace')
+                                  timeout=30, encoding=system_encoding, errors='replace',
+                                  creationflags=creation_flags)
             
             if result.returncode == 0 and result.stdout.strip():
                 # 成功获取到结果

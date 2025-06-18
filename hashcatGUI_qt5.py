@@ -7,8 +7,22 @@ import json
 import subprocess
 import threading
 import time
+import logging
+import locale
+import datetime
 from typing import Optional, Tuple, Dict, List, Any, Set
 from functools import lru_cache
+
+# 配置日志记录
+logging.basicConfig(
+    level=logging.DEBUG,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler('hashcat_gui_function_calls.log', encoding='utf-8'),
+        logging.StreamHandler()
+    ]
+)
+function_logger = logging.getLogger('FunctionCalls')
 from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QTabWidget, QLabel, QLineEdit, QPushButton, QTextEdit, QComboBox,
@@ -148,6 +162,7 @@ class WorkloadProfiles:
 class DraggableLabel(QLabel):
     """可拖拽的标签"""
     def __init__(self, text, charset):
+        function_logger.debug(f"DraggableLabel.__init__ called with text='{text}', charset='{charset}'")
         super().__init__(text)
         self.charset = charset
         self.setStyleSheet("""
@@ -166,10 +181,12 @@ class DraggableLabel(QLabel):
         self.setMinimumHeight(30)
         
     def mousePressEvent(self, event):
+        function_logger.debug(f"DraggableLabel.mousePressEvent called")
         if event.button() == Qt.LeftButton:
             self.drag_start_position = event.pos()
             
     def mouseMoveEvent(self, event):
+        function_logger.debug(f"DraggableLabel.mouseMoveEvent called")
         if not (event.buttons() & Qt.LeftButton):
             return
             
@@ -187,11 +204,13 @@ class DraggableLabel(QLabel):
 class DropTargetLineEdit(QLineEdit):
     """支持拖拽接收的输入框"""
     def __init__(self):
+        function_logger.debug(f"DropTargetLineEdit.__init__ called")
         super().__init__()
         self.setAcceptDrops(True)
         self.charset_number = 0
         
     def dragEnterEvent(self, event):
+        function_logger.debug(f"DropTargetLineEdit.dragEnterEvent called")
         if event.mimeData().hasText():
             event.accept()
             self.setStyleSheet("""
@@ -204,9 +223,11 @@ class DropTargetLineEdit(QLineEdit):
             event.ignore()
             
     def dragLeaveEvent(self, event):
+        function_logger.debug(f"DropTargetLineEdit.dragLeaveEvent called")
         self.setStyleSheet("")
         
     def dropEvent(self, event):
+        function_logger.debug(f"DropTargetLineEdit.dropEvent called")
         if event.mimeData().hasText():
             charset = event.mimeData().text()
             current_text = self.text()
@@ -269,12 +290,29 @@ class Config:
     ENCFS2JOHN_PY = 'encfs2john.py'
     STAROFFICE2JOHN_PY = 'staroffice2john.py'
     
+    # hashcat工具
+    AESCRYPT2HASHCAT_PL = 'aescrypt2hashcat.pl'
+    BITWARDEN2HASHCAT_PY = 'bitwarden2hashcat.py'
+    CRYPTOLOOP2HASHCAT_PY = 'cryptoloop2hashcat.py'
+    EXODUS2HASHCAT_PY = 'exodus2hashcat.py'
+    LUKS2HASHCAT_PY = 'luks2hashcat.py'
+    METAMASK2HASHCAT_PY = 'metamask2hashcat.py'
+    MOZILLA2HASHCAT_PY = 'mozilla2hashcat.py'
+    RADMIN3_TO_HASHCAT_PL = 'radmin3_to_hashcat.pl'
+    SECURENOTES2HASHCAT_PL = 'securenotes2hashcat.pl'
+    SQLCIPHER2HASHCAT_PL = 'sqlcipher2hashcat.pl'
+    TRUECRYPT2HASHCAT_PY = 'truecrypt2hashcat.py'
+    VERACRYPT2HASHCAT_PY = 'veracrypt2hashcat.py'
+    VIRTUALBOX2HASHCAT_PY = 'virtualbox2hashcat.py'
+    VMWAREVMX2HASHCAT_PY = 'vmwarevmx2hashcat.py'
+    
 class ErrorHandler:
     """统一错误处理类"""
     
     @staticmethod
     def handle_file_error(operation: str, error: Exception) -> str:
         """处理文件操作错误"""
+        function_logger.debug(f"ErrorHandler.handle_file_error called with operation='{operation}', error='{error}'")
         if isinstance(error, FileNotFoundError):
             return f"{operation}失败: 文件未找到"
         elif isinstance(error, PermissionError):
@@ -287,6 +325,7 @@ class ErrorHandler:
     @staticmethod
     def handle_subprocess_error(operation: str, result: subprocess.CompletedProcess) -> str:
         """处理子进程错误"""
+        function_logger.debug(f"ErrorHandler.handle_subprocess_error called with operation='{operation}', returncode={result.returncode}")
         if result.returncode != 0:
             error_msg = result.stderr.strip() if result.stderr else "未知错误"
             return f"{operation}失败: {error_msg}"
@@ -298,6 +337,7 @@ class HashDetector:
     @staticmethod
     def detect_office_hash_type(hash_value: str) -> str:
         """检测Office文档哈希类型"""
+        function_logger.debug(f"HashDetector.detect_office_hash_type called with hash_value length={len(hash_value)}")
         if '$office$' in hash_value:
             if '$office$2007$' in hash_value:
                 return HashTypes.OFFICE_2007
@@ -320,6 +360,7 @@ class HashDetector:
     @staticmethod
     def detect_pdf_hash_type(hash_value: str) -> str:
         """检测PDF哈希类型"""
+        function_logger.debug(f"HashDetector.detect_pdf_hash_type called with hash_value length={len(hash_value)}")
         if '$pdf$1$' in hash_value:
             return HashTypes.PDF_1_1_1_3
         elif '$pdf$2$' in hash_value:
@@ -334,6 +375,7 @@ class HashDetector:
     @staticmethod
     def detect_rar_hash_type(hash_value: str) -> str:
         """检测RAR哈希类型"""
+        function_logger.debug(f"HashDetector.detect_rar_hash_type called with hash_value length={len(hash_value)}")
         if hash_value.startswith('$rar5$'):
             return HashTypes.RAR5
         elif hash_value.startswith('$RAR3$'):
@@ -349,6 +391,7 @@ class HashDetector:
     @staticmethod
     def detect_zip_hash_type(hash_value: str) -> str:
         """检测ZIP哈希类型"""
+        function_logger.debug(f"HashDetector.detect_zip_hash_type called with hash_value length={len(hash_value)}")
         if hash_value.startswith('$pkzip2$'):
             return HashTypes.PKZIP
         else:
@@ -357,6 +400,7 @@ class HashDetector:
     @staticmethod
     def detect_odf_hash_type(hash_value: str) -> str:
         """检测OpenDocument哈希类型"""
+        function_logger.debug(f"HashDetector.detect_odf_hash_type called with hash_value length={len(hash_value)}")
         if '$odf$' in hash_value:
             if 'sha256' in hash_value.lower():
                 return HashTypes.ODF_1_2
@@ -368,6 +412,7 @@ class HashDetector:
     @staticmethod
     def detect_keepass_hash_type(hash_value: str) -> str:
         """检测KeePass哈希类型"""
+        function_logger.debug(f"HashDetector.detect_keepass_hash_type called with hash_value length={len(hash_value)}")
         if '$keepass$' in hash_value:
             return HashTypes.KEEPASS_2_X
         return HashTypes.KEEPASS_2_X  # 默认
@@ -375,6 +420,7 @@ class HashDetector:
     @staticmethod
     def detect_bitcoin_hash_type(hash_value: str) -> str:
         """检测Bitcoin钱包哈希类型"""
+        function_logger.debug(f"HashDetector.detect_bitcoin_hash_type called with hash_value length={len(hash_value)}")
         if '$bitcoin$' in hash_value:
             return HashTypes.BITCOIN_CORE
         return HashTypes.BITCOIN_CORE  # 默认
@@ -382,6 +428,7 @@ class HashDetector:
     @staticmethod
     def detect_ethereum_hash_type(hash_value: str) -> str:
         """检测Ethereum钱包哈希类型"""
+        function_logger.debug(f"HashDetector.detect_ethereum_hash_type called with hash_value length={len(hash_value)}")
         if '$ethereum$p' in hash_value:
             return HashTypes.ETHEREUM_PRESALE
         elif '$ethereum$' in hash_value:
@@ -391,11 +438,13 @@ class HashDetector:
     @staticmethod
     def detect_iwork_hash_type(hash_value: str) -> str:
         """检测iWork文档哈希类型"""
+        function_logger.debug(f"HashDetector.detect_iwork_hash_type called with hash_value length={len(hash_value)}")
         return HashTypes.APPLE_IWORK
     
     @staticmethod
     def detect_truecrypt_hash_type(hash_value: str) -> str:
         """检测TrueCrypt/VeraCrypt哈希类型"""
+        function_logger.debug(f"HashDetector.detect_truecrypt_hash_type called with hash_value length={len(hash_value)}")
         if 'truecrypt_RIPEMD_160' in hash_value:
             return HashTypes.TRUECRYPT_RIPEMD160
         elif 'truecrypt_SHA_512' in hash_value:
@@ -407,13 +456,25 @@ class HashDetector:
         return HashTypes.TRUECRYPT_RIPEMD160  # 默认
     
     @staticmethod
+    def detect_veracrypt_hash_type(hash_value: str) -> str:
+        """检测VeraCrypt哈希类型"""
+        function_logger.debug(f"HashDetector.detect_veracrypt_hash_type called with hash_value length={len(hash_value)}")
+        if '$veracrypt$' in hash_value:
+            # 根据哈希值长度和内容判断具体的VeraCrypt类型
+            # 默认返回SHA512类型，这是最常见的VeraCrypt类型
+            return HashTypes.VERACRYPT_SHA512
+        return HashTypes.VERACRYPT_SHA512  # 默认
+    
+    @staticmethod
     def detect_axcrypt_hash_type(hash_value: str) -> str:
         """检测AxCrypt哈希类型"""
+        function_logger.debug(f"HashDetector.detect_axcrypt_hash_type called with hash_value length={len(hash_value)}")
         return HashTypes.AXCRYPT
     
     @staticmethod
     def detect_itunes_hash_type(hash_value: str) -> str:
         """检测iTunes备份哈希类型"""
+        function_logger.debug(f"HashDetector.detect_itunes_hash_type called with hash_value length={len(hash_value)}")
         if '$itunes_backup$*10*' in hash_value:
             return HashTypes.ITUNES_BACKUP_10
         elif '$itunes_backup$*9*' in hash_value:
@@ -423,21 +484,25 @@ class HashDetector:
     @staticmethod
     def detect_luks_hash_type(hash_value: str) -> str:
         """检测LUKS哈希类型"""
+        function_logger.debug(f"HashDetector.detect_luks_hash_type called with hash_value length={len(hash_value)}")
         return HashTypes.LUKS
     
     @staticmethod
     def detect_dmg_hash_type(hash_value: str) -> str:
         """检测DMG哈希类型"""
+        function_logger.debug(f"HashDetector.detect_dmg_hash_type called with hash_value length={len(hash_value)}")
         return HashTypes.DMG
     
     @staticmethod
     def detect_pwsafe_hash_type(hash_value: str) -> str:
         """检测Password Safe哈希类型"""
+        function_logger.debug(f"HashDetector.detect_pwsafe_hash_type called with hash_value length={len(hash_value)}")
         return HashTypes.PWSAFE_V3
     
     @staticmethod
     def detect_enpass_hash_type(hash_value: str) -> str:
         """检测Enpass哈希类型"""
+        function_logger.debug(f"HashDetector.detect_enpass_hash_type called with hash_value length={len(hash_value)}")
         if 'enpass6' in hash_value.lower():
             return HashTypes.ENPASS_6
         return HashTypes.ENPASS_5  # 默认
@@ -445,26 +510,31 @@ class HashDetector:
     @staticmethod
     def detect_bitwarden_hash_type(hash_value: str) -> str:
         """检测Bitwarden哈希类型"""
+        function_logger.debug(f"HashDetector.detect_bitwarden_hash_type called with hash_value length={len(hash_value)}")
         return HashTypes.BITWARDEN
     
     @staticmethod
     def detect_multibit_hash_type(hash_value: str) -> str:
         """检测MultiBit钱包哈希类型"""
+        function_logger.debug(f"HashDetector.detect_multibit_hash_type called with hash_value length={len(hash_value)}")
         return HashTypes.MULTIBIT_HD
     
     @staticmethod
     def detect_electrum_hash_type(hash_value: str) -> str:
         """检测Electrum钱包哈希类型"""
+        function_logger.debug(f"HashDetector.detect_electrum_hash_type called with hash_value length={len(hash_value)}")
         return HashTypes.ELECTRUM_WALLET_NEW
     
     @staticmethod
     def detect_lotus_hash_type(hash_value: str) -> str:
         """检测Lotus Notes哈希类型"""
+        function_logger.debug(f"HashDetector.detect_lotus_hash_type called with hash_value length={len(hash_value)}")
         return HashTypes.LOTUS_NOTES_DOMINOSEC
     
     @staticmethod
     def detect_mozilla_hash_type(hash_value: str) -> str:
         """检测Mozilla哈希类型"""
+        function_logger.debug(f"HashDetector.detect_mozilla_hash_type called with hash_value length={len(hash_value)}")
         if 'key4.db' in hash_value.lower():
             return HashTypes.MOZILLA_KEY4
         return HashTypes.MOZILLA_KEY3  # 默认
@@ -472,21 +542,25 @@ class HashDetector:
     @staticmethod
     def detect_filezilla_hash_type(hash_value: str) -> str:
         """检测FileZilla哈希类型"""
+        function_logger.debug(f"HashDetector.detect_filezilla_hash_type called with hash_value length={len(hash_value)}")
         return HashTypes.FILEZILLA_SERVER
     
     @staticmethod
     def detect_encfs_hash_type(hash_value: str) -> str:
         """检测EncFS哈希类型"""
+        function_logger.debug(f"HashDetector.detect_encfs_hash_type called with hash_value length={len(hash_value)}")
         return HashTypes.ENCFS
     
     @staticmethod
     def detect_staroffice_hash_type(hash_value: str) -> str:
         """检测StarOffice哈希类型"""
+        function_logger.debug(f"HashDetector.detect_staroffice_hash_type called with hash_value length={len(hash_value)}")
         return HashTypes.STAROFFICE
     
     @classmethod
     def detect_hash_type_by_file_ext(cls, file_ext: str, hash_value: str) -> str:
         """根据文件扩展名和哈希值检测哈希类型"""
+        function_logger.debug(f"HashDetector.detect_hash_type_by_file_ext called with file_ext='{file_ext}', hash_value length={len(hash_value)}")
         file_ext = file_ext.lower()
         
         # 压缩文件
@@ -540,6 +614,8 @@ class HashDetector:
         # 磁盘加密
         elif file_ext in ['.tc', '.hc']:
             return cls.detect_truecrypt_hash_type(hash_value)
+        elif file_ext == '.vc':
+            return cls.detect_veracrypt_hash_type(hash_value)
         elif file_ext in ['.luks', '.img']:
             return cls.detect_luks_hash_type(hash_value)
         
@@ -569,6 +645,7 @@ class DeviceCache:
     @classmethod
     def get_devices(cls, hashcat_path: str) -> List[str]:
         """获取设备列表（带缓存）"""
+        function_logger.debug(f"DeviceCache.get_devices called with hashcat_path='{hashcat_path}'")
         current_time = time.time()
         if (cls._cache is None or 
             current_time - cls._cache_time > cls._cache_duration):
@@ -578,6 +655,7 @@ class DeviceCache:
     @classmethod
     def _refresh_cache(cls, hashcat_path: str) -> None:
         """刷新设备缓存"""
+        function_logger.debug(f"DeviceCache._refresh_cache called with hashcat_path='{hashcat_path}'")
         try:
             # 实现设备列表获取逻辑
             cls._cache = []  # 这里应该实现实际的设备获取逻辑
@@ -588,6 +666,7 @@ class DeviceCache:
     @classmethod
     def clear_cache(cls) -> None:
         """清除缓存"""
+        function_logger.debug("DeviceCache.clear_cache called")
         cls._cache = None
         cls._cache_time = 0
 
@@ -595,6 +674,7 @@ class MaskGeneratorDialog(QDialog):
     """掩码生成器对话框"""
     
     def __init__(self, parent=None):
+        function_logger.debug(f"MaskGeneratorDialog.__init__ called with parent={parent}")
         super().__init__(parent)
         self.setWindowTitle("掩码生成器")
         self.setModal(True)
@@ -611,6 +691,7 @@ class MaskGeneratorDialog(QDialog):
         self.load_mask_generator_config()
     
     def setup_ui(self):
+        function_logger.debug("MaskGeneratorDialog.setup_ui called")
         layout = QVBoxLayout(self)
         
         # 掩码长度设置
@@ -794,6 +875,7 @@ class MaskGeneratorDialog(QDialog):
     
     def sync_custom_charsets_from_parent(self):
         """从主界面同步自定义字符集内容"""
+        function_logger.debug("MaskGeneratorDialog.sync_custom_charsets_from_parent called")
         if self.parent_window:
             self.charset1_edit.setText(self.parent_window.charset1_edit.text())
             self.charset2_edit.setText(self.parent_window.charset2_edit.text())
@@ -802,6 +884,7 @@ class MaskGeneratorDialog(QDialog):
     
     def on_custom_charset_changed(self):
         """处理自定义字符集输入框变化"""
+        function_logger.debug("MaskGeneratorDialog.on_custom_charset_changed called")
         # 同步到主界面
         if self.parent_window:
             self.parent_window.charset1_edit.setText(self.charset1_edit.text())
@@ -817,6 +900,7 @@ class MaskGeneratorDialog(QDialog):
     
     def update_custom_charset_status(self):
         """更新自定义字符集复选框的状态"""
+        function_logger.debug("MaskGeneratorDialog.update_custom_charset_status called")
         # 检查掩码生成器内的自定义字符集输入框是否有内容
         charset1_enabled = bool(self.charset1_edit.text().strip())
         charset2_enabled = bool(self.charset2_edit.text().strip())
@@ -841,6 +925,7 @@ class MaskGeneratorDialog(QDialog):
     
     def on_all_check_changed(self, state):
         """处理全选复选框状态变化"""
+        function_logger.debug(f"MaskGeneratorDialog.on_all_check_changed called with state={state}")
         if state == 2:  # 选中
             self.lowercase_check.setChecked(False)
             self.uppercase_check.setChecked(False)
@@ -854,6 +939,7 @@ class MaskGeneratorDialog(QDialog):
     
     def update_mask_preview(self):
         """更新掩码预览"""
+        function_logger.debug("MaskGeneratorDialog.update_mask_preview called")
         length = self.length_spin.value()
         
         if self.all_check.isChecked():
@@ -893,11 +979,13 @@ class MaskGeneratorDialog(QDialog):
     
     def on_mask_edited(self):
         """处理掩码手动编辑"""
+        function_logger.debug("MaskGeneratorDialog.on_mask_edited called")
         mask = self.mask_preview.text()
         self.calculate_candidates(mask)
     
     def calculate_candidates(self, mask):
         """计算候选数量"""
+        function_logger.debug(f"MaskGeneratorDialog.calculate_candidates called with mask='{mask}'")
         try:
             total = 1
             i = 0
@@ -945,6 +1033,7 @@ class MaskGeneratorDialog(QDialog):
     
     def load_current_mask(self):
         """从主界面加载当前掩码并解析设置"""
+        function_logger.debug("MaskGeneratorDialog.load_current_mask called")
         if self.parent_window and hasattr(self.parent_window, 'mask_edit'):
             current_mask = self.parent_window.mask_edit.text().strip()
             if current_mask:
@@ -955,6 +1044,7 @@ class MaskGeneratorDialog(QDialog):
     
     def parse_and_set_mask(self, mask):
         """解析掩码并设置相应的复选框和长度"""
+        function_logger.debug(f"MaskGeneratorDialog.parse_and_set_mask called with mask='{mask}'")
         try:
             # 设置掩码长度
             mask_length = len([c for c in mask if c == '?']) // 2 if '?' in mask else len(mask)
@@ -989,10 +1079,12 @@ class MaskGeneratorDialog(QDialog):
     
     def get_mask(self):
         """获取生成的掩码"""
+        function_logger.debug("MaskGeneratorDialog.get_mask called")
         return self.mask_preview.text()
     
     def load_mask_generator_config(self):
         """加载掩码生成器配置"""
+        function_logger.debug("MaskGeneratorDialog.load_mask_generator_config called")
         try:
             if os.path.exists(self.mask_config_file):
                 with open(self.mask_config_file, 'r', encoding='utf-8') as f:
@@ -1026,6 +1118,7 @@ class MaskGeneratorDialog(QDialog):
     
     def save_mask_generator_config(self):
         """保存掩码生成器配置"""
+        function_logger.debug("MaskGeneratorDialog.save_mask_generator_config called")
         try:
             config = {
                 'length': self.length_spin.value(),
@@ -1053,6 +1146,7 @@ class MaskGeneratorDialog(QDialog):
     
     def clear_charset(self, charset_num):
         """清空指定的字符集输入框"""
+        function_logger.debug(f"MaskGeneratorDialog.clear_charset called with charset_num={charset_num}")
         charset_edit = getattr(self, f'charset{charset_num}_edit')
         charset_edit.clear()
         
@@ -1065,6 +1159,7 @@ class MaskGeneratorDialog(QDialog):
     
     def on_accept(self):
         """处理确定按钮点击事件"""
+        function_logger.debug("MaskGeneratorDialog.on_accept called")
         # 保存掩码生成器配置
         self.save_mask_generator_config()
         # 调用父类的accept方法
@@ -1076,12 +1171,14 @@ class HashcatWorker(QThread):
     success_signal = pyqtSignal(str, str)  # hash_part, password_part
     
     def __init__(self, command, working_dir=None):
+        function_logger.debug(f"HashcatWorker.__init__ called with command={command}, working_dir={working_dir}")
         super().__init__()
         self.command = command
         self.working_dir = working_dir
         self.process = None
     
     def run(self):
+        function_logger.debug("HashcatWorker.run called")
         try:
             # 使用bytes模式避免编码问题
             self.process = subprocess.Popen(
@@ -1121,6 +1218,7 @@ class HashcatWorker(QThread):
     
     def _decode_output(self, output_bytes):
         """尝试多种编码解码输出"""
+        function_logger.debug(f"HashcatWorker._decode_output called with output_bytes length={len(output_bytes)}")
         # 常见编码列表，按优先级排序
         encodings = ['utf-8', 'gbk', 'gb2312', 'latin-1', 'cp1252', 'iso-8859-1']
         
@@ -1139,6 +1237,7 @@ class HashcatWorker(QThread):
     
     def stop(self):
         """停止hashcat进程"""
+        function_logger.debug("HashcatWorker.stop called")
         if self.process:
             try:
                 # 首先尝试优雅地终止进程
@@ -1162,6 +1261,7 @@ class HashcatWorker(QThread):
 
 class HashcatGUI(QMainWindow):
     def __init__(self):
+        function_logger.debug("HashcatGUI.__init__ called")
         super().__init__()
         self.setWindowTitle("Hashcat GUI - by JIA")
         self.setGeometry(100, 100, 1200, 800)
@@ -1194,6 +1294,13 @@ class HashcatGUI(QMainWindow):
         }
         self.is_cracking: bool = False
         
+        # 哈希提取缓存 - 避免重复调用xxx2john工具
+        # 格式: {文件路径: (哈希值, 哈希类型, 文件修改时间)}
+        self.hash_cache: Dict[str, Tuple[str, str, float]] = {}
+        
+        # 用户手动选择哈希类型的标记
+        self._user_selected_hash_type = False
+        
         # 初始化界面
         self.init_ui()
         
@@ -1202,6 +1309,7 @@ class HashcatGUI(QMainWindow):
     
     def _setup_window_icon(self) -> None:
         """设置窗口图标"""
+        function_logger.debug("HashcatGUI._setup_window_icon called")
         try:
             icon_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "hashcat.ico")
             if os.path.exists(icon_path):
@@ -1211,6 +1319,7 @@ class HashcatGUI(QMainWindow):
     
     def apply_saved_mask_settings(self):
         """应用保存的掩码设置"""
+        function_logger.debug("HashcatGUI.apply_saved_mask_settings called")
         try:
             # 应用掩码
             if hasattr(self, 'saved_mask') and hasattr(self, 'mask_edit'):
@@ -1230,6 +1339,7 @@ class HashcatGUI(QMainWindow):
     
     def init_ui(self):
         """初始化用户界面"""
+        function_logger.debug("HashcatGUI.init_ui called")
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
         
@@ -1263,6 +1373,7 @@ class HashcatGUI(QMainWindow):
     
     def create_main_tab(self):
         """创建主界面标签页"""
+        function_logger.debug("HashcatGUI.create_main_tab called")
         main_widget = QWidget()
         self.tab_widget.addTab(main_widget, "Hash爆破")
         
@@ -2082,6 +2193,7 @@ class HashcatGUI(QMainWindow):
     
     def filter_hash_types(self):
         """根据搜索框内容过滤哈希类型"""
+        function_logger.debug("HashcatGUI.filter_hash_types called")
         search_text = self.hash_type_search.text().lower()
         
         # 清空当前项目
@@ -2098,6 +2210,7 @@ class HashcatGUI(QMainWindow):
     
     def setup_input_layout(self):
         """设置输入布局"""
+        function_logger.debug("HashcatGUI.setup_input_layout called")
         self.input_layout.addWidget(self.file_label, 0, 0)
         self.input_layout.addWidget(self.file_path_edit, 0, 1)
         self.input_layout.addWidget(self.browse_file_btn, 0, 2)
@@ -2120,6 +2233,7 @@ class HashcatGUI(QMainWindow):
     
     def create_config_tab(self):
         """创建配置标签页"""
+        function_logger.debug("HashcatGUI.create_config_tab called")
         config_widget = QWidget()
         self.tab_widget.addTab(config_widget, "配置")
         
@@ -2273,6 +2387,7 @@ class HashcatGUI(QMainWindow):
     
     def create_help_tab(self):
         """创建帮助文档标签页"""
+        function_logger.debug("HashcatGUI.create_help_tab called")
         help_widget = QWidget()
         self.tab_widget.addTab(help_widget, "帮助文档")
         
@@ -2286,6 +2401,7 @@ class HashcatGUI(QMainWindow):
     
     def setup_signals(self):
         """设置所有信号连接"""
+        function_logger.debug("HashcatGUI.setup_signals called")
         # 解密类型切换信号
         self.file_radio.toggled.connect(self.on_decrypt_type_changed)
         self.text_radio.toggled.connect(self.on_decrypt_type_changed)
@@ -2296,7 +2412,7 @@ class HashcatGUI(QMainWindow):
         
         # 命令预览更新信号
         self.hash_edit.textChanged.connect(self.update_command_preview)
-        self.hash_type_combo.currentTextChanged.connect(self.update_command_preview)
+        self.hash_type_combo.currentTextChanged.connect(self.on_hash_type_changed)
         self.workload_combo.currentTextChanged.connect(self.update_command_preview)
         self.mask_edit.textChanged.connect(self.update_command_preview)
         self.charset1_edit.textChanged.connect(self.update_command_preview)
@@ -2330,7 +2446,7 @@ class HashcatGUI(QMainWindow):
         
         # 路径编辑框信号
         self.john_path_edit.textChanged.connect(lambda: self.validate_john_path(self.john_path_edit.text()))
-        self.hashcat_path_edit.textChanged.connect(lambda: self.validate_hashcat_path(self.hashcat_path_edit.text()))
+        self.hashcat_path_edit.textChanged.connect(self._on_hashcat_path_changed)
         
         # 新增控件信号连接
         self.mask_template_combo.currentTextChanged.connect(self.on_mask_template_changed)
@@ -2347,6 +2463,7 @@ class HashcatGUI(QMainWindow):
     
     def on_decrypt_type_changed(self):
         """解密类型改变时的处理"""
+        function_logger.debug("HashcatGUI.on_decrypt_type_changed called")
         is_file_mode = self.file_radio.isChecked()
         is_text_mode = self.text_radio.isChecked()
         is_batch_mode = self.batch_radio.isChecked()
@@ -2368,9 +2485,10 @@ class HashcatGUI(QMainWindow):
     
     def browse_file(self):
         """浏览文件"""
+        function_logger.debug("HashcatGUI.browse_file called")
         file_path, _ = QFileDialog.getOpenFileName(
             self, "选择要破解的文件", "", 
-            "所有支持的文件 (*.zip *.rar *.7z *.doc *.docx *.xls *.xlsx *.ppt *.pptx *.pdf *.odt *.ods *.odp *.odg *.odf *.kdbx *.kdb *.psafe3 *.enpassdb *.walletx *.db *.dat *.wallet *.json *.keystore *.multibit *.electrum *.key *.numbers *.pages *.plist *.keychain *.dmg *.tc *.hc *.luks *.img *.axx *.encfs6.xml *.id *.nsf *.key3.db *.key4.db *.xml *.sxc *.sxw *.sxi *.sxd);;"
+            "所有支持的文件 (*.zip *.rar *.7z *.doc *.docx *.xls *.xlsx *.ppt *.pptx *.pdf *.odt *.ods *.odp *.odg *.odf *.kdbx *.kdb *.psafe3 *.enpassdb *.walletx *.db *.dat *.wallet *.json *.keystore *.multibit *.electrum *.key *.numbers *.pages *.plist *.keychain *.dmg *.tc *.hc *.luks *.img *.axx *.encfs6.xml *.id *.nsf *.key3.db *.key4.db *.xml *.sxc *.sxw *.sxi *.sxd *.loop *.seco *.metamask *.vc *.vdi *.vmx *.aes *.v2 *.notes);;"
             "压缩文件 (*.zip *.rar *.7z);;"
             "Office文档 (*.doc *.docx *.xls *.xlsx *.ppt *.pptx);;"
             "PDF文件 (*.pdf);;"
@@ -2382,16 +2500,29 @@ class HashcatGUI(QMainWindow):
             "磁盘加密 (*.tc *.hc *.luks *.img);;"
             "文件加密 (*.axx *.encfs6.xml);;"
             "应用程序 (*.id *.nsf *.key3.db *.key4.db *.xml);;"
+            "Hashcat专用工具 (*.loop *.seco *.metamask *.vc *.vdi *.vmx *.aes *.v2 *.notes);;"
             "所有文件 (*.*)"
         )
         if file_path:
             self.file_path_edit.setText(file_path)
             
+            # 定期清理缓存，避免内存占用过多
+            self.clear_hash_cache()
+            
             # 自动提取hash并选择对应的hash类型
             self.auto_detect_hash_type(file_path)
     
+    def on_hash_type_changed(self):
+        """处理用户手动更改哈希类型的事件"""
+        function_logger.debug("HashcatGUI.on_hash_type_changed called")
+        # 标记用户已手动选择哈希类型
+        self._user_selected_hash_type = True
+        # 更新命令预览
+        self.update_command_preview()
+    
     def auto_detect_hash_type(self, file_path):
         """自动检测并选择hash类型"""
+        function_logger.debug(f"HashcatGUI.auto_detect_hash_type called with file_path: {file_path}")
         try:
             # 显示正在检测的状态
             self.log_text.append(f"正在检测文件类型: {os.path.basename(file_path)}")
@@ -2403,14 +2534,17 @@ class HashcatGUI(QMainWindow):
                 self.log_text.append(f"检测失败: {hash_type_or_error}")
                 return
             
+            # 重置用户选择标记，因为这是自动检测
+            self._user_selected_hash_type = False
+            
             # 自动选择对应的hash类型
             for i in range(self.hash_type_combo.count()):
                 if self.hash_type_combo.itemText(i).startswith(hash_type_or_error):
                     self.hash_type_combo.setCurrentIndex(i)
                     hash_type_name = self.hash_type_combo.itemText(i)
                     self.log_text.append(f"已自动选择hash类型: {hash_type_name}")
-                    # 更新命令预览
-                    self.update_command_preview()
+                    # 使用已提取的哈希值更新命令预览，避免重复调用get_hash_from_file
+                    self._update_command_preview_with_hash(hash_value)
                     break
             else:
                 self.log_text.append(f"未找到匹配的hash类型: {hash_type_or_error}")
@@ -2420,6 +2554,7 @@ class HashcatGUI(QMainWindow):
     
     def browse_dict(self):
         """浏览字典文件"""
+        function_logger.debug("HashcatGUI.browse_dict called")
         file_path, _ = QFileDialog.getOpenFileName(
             self, "选择字典文件", "", 
             "文本文件 (*.txt);;所有文件 (*.*)"
@@ -2430,28 +2565,27 @@ class HashcatGUI(QMainWindow):
     
     def browse_john_path(self):
         """浏览John路径"""
+        function_logger.debug("HashcatGUI.browse_john_path called")
         dir_path = QFileDialog.getExistingDirectory(
             self, "选择John the Ripper目录"
         )
         if dir_path:
-            # 自动添加john.exe到路径
-            john_exe_path = os.path.join(dir_path, "john.exe")
-            self.john_path_edit.setText(john_exe_path)
-            self.validate_john_path(john_exe_path)
+            self.john_path_edit.setText(dir_path)
+            self.validate_john_path(dir_path)
     
     def browse_hashcat_path(self):
         """浏览Hashcat路径"""
+        function_logger.debug("HashcatGUI.browse_hashcat_path called")
         dir_path = QFileDialog.getExistingDirectory(
             self, "选择Hashcat目录"
         )
         if dir_path:
-            # 自动添加hashcat.exe到路径
-            hashcat_exe_path = os.path.join(dir_path, "hashcat.exe")
-            self.hashcat_path_edit.setText(hashcat_exe_path)
-            self.validate_hashcat_path(hashcat_exe_path)
+            self.hashcat_path_edit.setText(dir_path)
+            self.validate_hashcat_path(dir_path)
     
     def validate_john_path(self, path):
         """验证John路径是否正确"""
+        function_logger.debug(f"HashcatGUI.validate_john_path called with path: {path}")
         if not path.strip():
             self.config_status_label.setText("")
             return
@@ -2493,6 +2627,7 @@ class HashcatGUI(QMainWindow):
     
     def validate_hashcat_path(self, path):
         """验证Hashcat路径是否正确"""
+        function_logger.debug(f"HashcatGUI.validate_hashcat_path called with path: {path}")
         if not path.strip():
             self.config_status_label.setText("")
             return
@@ -2535,6 +2670,7 @@ class HashcatGUI(QMainWindow):
     
     def on_attack_mode_changed(self):
         """攻击模式变化时的处理"""
+        function_logger.debug("HashcatGUI.on_attack_mode_changed called")
         current_mode = self.attack_mode_combo.currentText()
         
         if "字典" in current_mode and "掩码" not in current_mode:
@@ -2591,6 +2727,7 @@ class HashcatGUI(QMainWindow):
     
     def browse_output(self):
         """浏览输出文件"""
+        function_logger.debug("HashcatGUI.browse_output called")
         file_path, _ = QFileDialog.getSaveFileName(
             self, "选择输出文件", "", "文本文件 (*.txt);;所有文件 (*)"
         )
@@ -2599,6 +2736,7 @@ class HashcatGUI(QMainWindow):
     
     def open_mask_generator(self):
         """打开掩码生成器对话框"""
+        function_logger.debug("HashcatGUI.open_mask_generator called")
         dialog = MaskGeneratorDialog(self)
         if dialog.exec_() == QDialog.Accepted:
             mask = dialog.get_mask()
@@ -2608,6 +2746,7 @@ class HashcatGUI(QMainWindow):
             self.save_config()
     
     def load_config(self):
+        function_logger.debug("HashcatGUI.load_config called")
         """加载配置"""
         try:
             if os.path.exists(self.config_file):
@@ -2632,6 +2771,7 @@ class HashcatGUI(QMainWindow):
     
     def save_config(self):
         """保存配置"""
+        function_logger.debug("HashcatGUI.save_config called")
         self.john_path = self.john_path_edit.text()
         self.hashcat_path = self.hashcat_path_edit.text()
         
@@ -2704,6 +2844,7 @@ class HashcatGUI(QMainWindow):
             self.config_status_label.setStyleSheet("color: red;")
     
     def check_tools(self):
+        function_logger.debug("HashcatGUI.check_tools called")
         """检查工具是否可用"""
         # 检查John the Ripper
         if os.path.exists(self.john_path):
@@ -2744,24 +2885,37 @@ class HashcatGUI(QMainWindow):
             self.log_text.append(f"✗ Hashcat 路径错误或不可用: {str(e)}")
     
     def get_hashcat_exe_path(self):
-        """获取hashcat可执行文件路径"""
+        """获取hashcat可执行文件路径（带缓存机制）"""
+        function_logger.debug("HashcatGUI.get_hashcat_exe_path called")
         hashcat_path = self.hashcat_path_edit.text().strip()
         if not hashcat_path:
             return None
         
+        # 检查缓存
+        if hasattr(self, '_hashcat_path_cache'):
+            cached_input, cached_result = self._hashcat_path_cache
+            if cached_input == hashcat_path:
+                return cached_result
+        
+        # 执行路径检查
+        result = None
+        
         # 检查是否为hashcat.exe文件路径
         if os.path.exists(hashcat_path) and os.path.isfile(hashcat_path):
-            return hashcat_path
+            result = hashcat_path
         # 检查是否为包含hashcat.exe的目录路径
         elif os.path.exists(hashcat_path) and os.path.isdir(hashcat_path):
             potential_path = os.path.join(hashcat_path, Config.HASHCAT_EXE)
             if os.path.exists(potential_path):
-                return potential_path
+                result = potential_path
         
-        return None
+        # 缓存结果
+        self._hashcat_path_cache = (hashcat_path, result)
+        return result
     
     def refresh_device_list(self):
         """刷新设备列表"""
+        function_logger.debug("HashcatGUI.refresh_device_list called")
         # 清除现有的设备复选框
         for checkbox in self.device_checkboxes:
             checkbox.setParent(None)
@@ -2830,6 +2984,7 @@ class HashcatGUI(QMainWindow):
     
     def parse_device_info(self, output):
         """解析hashcat -I的输出，提取设备信息"""
+        function_logger.debug("HashcatGUI.parse_device_info called")
         devices = []
         lines = output.split('\n')
         
@@ -2872,22 +3027,26 @@ class HashcatGUI(QMainWindow):
     
     def select_all_devices(self):
         """全选所有设备"""
+        function_logger.debug("HashcatGUI.select_all_devices called")
         for checkbox in self.device_checkboxes:
             if isinstance(checkbox, QCheckBox):
                 checkbox.setChecked(True)
     
     def deselect_all_devices(self):
         """全不选所有设备"""
+        function_logger.debug("HashcatGUI.deselect_all_devices called")
         for checkbox in self.device_checkboxes:
             if isinstance(checkbox, QCheckBox):
                 checkbox.setChecked(False)
     
     def on_device_selection_changed(self):
         """设备选择改变时的处理"""
+        function_logger.debug("HashcatGUI.on_device_selection_changed called")
         self.update_command_preview()
     
     def get_selected_devices(self):
         """获取选中的设备ID列表"""
+        function_logger.debug("HashcatGUI.get_selected_devices called")
         selected_devices = []
         for checkbox in self.device_checkboxes:
             if isinstance(checkbox, QCheckBox) and checkbox.isChecked():
@@ -2899,7 +3058,39 @@ class HashcatGUI(QMainWindow):
                     selected_devices.append(match.group(1))
         return selected_devices
     
-    def get_hash_from_file(self, file_path):
+    def _log_command_output(self, output: str, prefix: str) -> None:
+        """记录命令输出到日志，统一处理输出长度限制
+        
+        Args:
+            output: 命令输出内容
+            prefix: 日志前缀
+        """
+        if not output:
+            return
+            
+        output_stripped = output.strip()
+        if not output_stripped:
+            return
+            
+        # 统一的输出长度限制处理
+        max_length = 1000
+        if len(output_stripped) > max_length:
+            truncated_output = f"{output_stripped[:500]}...[输出过长，已截断]...{output_stripped[-500:]}"
+            self.log_text.append(f"{prefix}: {truncated_output}")
+        else:
+            self.log_text.append(f"{prefix}: {output_stripped}")
+    
+    def _on_hashcat_path_changed(self) -> None:
+        """Hashcat路径改变时的处理"""
+        # 清除路径缓存
+        if hasattr(self, '_hashcat_path_cache'):
+            delattr(self, '_hashcat_path_cache')
+        
+        # 执行原有的验证逻辑
+        self.validate_hashcat_path(self.hashcat_path_edit.text())
+    
+    def get_hash_from_file(self, file_path: str, silent_cache: bool = False) -> Tuple[Optional[str], str]:
+        function_logger.debug(f"HashcatGUI.get_hash_from_file called with file_path: {file_path}")
         """从文件提取哈希"""
         try:
             # 检查文件是否存在和可读
@@ -2908,6 +3099,32 @@ class HashcatGUI(QMainWindow):
             
             if not os.access(file_path, os.R_OK):
                 return None, "文件无读取权限，请检查文件权限或关闭占用该文件的程序"
+            
+            # 检查缓存 - 避免重复调用xxx2john工具
+            file_mtime = os.path.getmtime(file_path)
+            if file_path in self.hash_cache:
+                cached_hash, cached_type, cached_mtime = self.hash_cache[file_path]
+                # 如果文件未被修改，直接返回缓存结果
+                if cached_mtime == file_mtime:
+                    # 只有在非静默模式下才输出缓存信息
+                    if not silent_cache:
+                        # 获取文件大小信息
+                        try:
+                            file_size = os.path.getsize(file_path)
+                            size_str = f"{file_size:,} 字节" if file_size < 1024*1024 else f"{file_size/(1024*1024):.1f} MB"
+                        except:
+                            size_str = "未知大小"
+                        
+                        # 计算缓存时间
+                        cache_time = datetime.datetime.fromtimestamp(cached_mtime).strftime('%Y-%m-%d %H:%M:%S')
+                        
+                        self.log_text.append(f"✓ 使用缓存的哈希值")
+                        self.log_text.append(f"  文件: {os.path.basename(file_path)}")
+                        self.log_text.append(f"  类型: {cached_type}")
+                        self.log_text.append(f"  大小: {size_str}")
+                        self.log_text.append(f"  缓存时间: {cache_time}")
+                        self.log_text.append(f"  哈希: {cached_hash[:32]}..." if len(cached_hash) > 32 else f"  哈希: {cached_hash}")
+                    return cached_hash, cached_type
             
             file_ext = os.path.splitext(file_path)[1].lower()
             
@@ -3001,33 +3218,103 @@ class HashcatGUI(QMainWindow):
             elif file_ext == '.xml':
                 tool_path = john_exe_path.replace(Config.JOHN_EXE, Config.FILEZILLA2JOHN_PY)
             else:
-                return None, f"不支持的文件类型: {file_ext}。请查看支持的文件类型列表。"
+                # 对于无扩展名文件，尝试检测VeraCrypt文件
+                if not file_ext:
+                    veracrypt_tool_path = self._detect_veracrypt_file(file_path)
+                    if veracrypt_tool_path:
+                        tool_path = veracrypt_tool_path
+                    else:
+                        return None, "无法识别文件类型。对于VeraCrypt文件，请确保文件是有效的VeraCrypt容器。"
+                else:
+                    # 尝试使用hashcat工具
+                    hashcat_tool_path = self._get_hashcat_tool_path(file_ext, file_path)
+                    if hashcat_tool_path:
+                        tool_path = hashcat_tool_path
+                    else:
+                        return None, f"不支持的文件类型: {file_ext}。请查看支持的文件类型列表。"
             
             # 检查工具是否存在
             if not os.path.exists(tool_path):
                 return None, f"工具不存在: {tool_path}"
             
             # 根据文件类型构建命令
+            # 检查是否为hashcat工具
+            hashcat_path = self.hashcat_path_edit.text().strip()
+            if hashcat_path:
+                if not os.path.isabs(hashcat_path):
+                    hashcat_path_abs = os.path.abspath(hashcat_path)
+                else:
+                    hashcat_path_abs = hashcat_path
+                    
+                if os.path.isfile(hashcat_path_abs) and hashcat_path_abs.endswith('hashcat.exe'):
+                    hashcat_dir = os.path.dirname(hashcat_path_abs)
+                elif os.path.isdir(hashcat_path_abs):
+                    hashcat_dir = hashcat_path_abs
+                else:
+                    hashcat_dir = None
+                    
+                is_hashcat_tool = hashcat_dir and tool_path.startswith(os.path.join(hashcat_dir, 'tools'))
+            else:
+                is_hashcat_tool = False
+            
             python_script_extensions = ['.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx', '.odt', '.ods', '.odp', '.odg', '.odf',
                                        '.sxc', '.sxw', '.sxi', '.sxd', '.psafe3', '.enpassdb', '.walletx', '.db',
                                        '.dat', '.wallet', '.json', '.keystore', '.multibit', '.electrum',
                                        '.key', '.numbers', '.pages', '.keychain', '.dmg', '.tc', '.hc',
                                        '.luks', '.img', '.axx', '.encfs6.xml', '.id', '.nsf', '.key3.db', '.key4.db', '.xml']
             
+            # hashcat工具的Python脚本
+            hashcat_python_extensions = ['.loop', '.metamask', '.vc', '.vdi', '.vmx']
+            
             perl_script_extensions = ['.pdf', '.plist']
+            
+            # hashcat工具的Perl脚本
+            hashcat_perl_extensions = ['.aes', '.v2', '.notes']
+            
+            # 合并扩展名列表
+            if is_hashcat_tool:
+                python_script_extensions.extend(hashcat_python_extensions)
+                perl_script_extensions.extend(hashcat_perl_extensions)
             
             if file_ext in python_script_extensions:
                 # Python脚本 - 检查Python是否可用
                 try:
                     subprocess.run(['python', '--version'], capture_output=True, check=True)
-                    cmd = ['python', tool_path, file_path]
+                    # 为特定的hashcat工具添加必要的参数
+                    if is_hashcat_tool:
+                        if tool_path.endswith('vmwarevmx2hashcat.py'):
+                            cmd = ['python', tool_path, '--vmx', file_path]
+                        elif tool_path.endswith('virtualbox2hashcat.py'):
+                            cmd = ['python', tool_path, '--vbox', file_path]
+                        elif tool_path.endswith('metamask2hashcat.py'):
+                            cmd = ['python', tool_path, '--vault', file_path]
+                        elif tool_path.endswith('cryptoloop2hashcat.py'):
+                            cmd = ['python', tool_path, '--source', file_path]
+                        elif tool_path.endswith('bitwarden2hashcat.py'):
+                            cmd = ['python', tool_path, file_path]
+                        else:
+                            # 大部分hashcat工具只需要文件路径作为位置参数
+                            cmd = ['python', tool_path, file_path]
+                    else:
+                        cmd = ['python', tool_path, file_path]
                 except (subprocess.CalledProcessError, FileNotFoundError):
                     return None, f"Python未安装或不可用，无法处理{file_ext}文件"
             elif file_ext in perl_script_extensions or (file_ext == '.7z' and tool_path.endswith('.pl')):
                 # Perl脚本 - 检查Perl是否可用
                 try:
                     subprocess.run(['perl', '--version'], capture_output=True, check=True)
-                    cmd = ['perl', tool_path, file_path]
+                    # 为特定的hashcat工具添加必要的参数
+                    if is_hashcat_tool:
+                        if tool_path.endswith('aescrypt2hashcat.pl'):
+                            cmd = ['perl', tool_path, '--aes', file_path]
+                        elif tool_path.endswith('radmin3_to_hashcat.pl'):
+                            cmd = ['perl', tool_path, '--radmin', file_path]
+                        elif tool_path.endswith('securenotes2hashcat.pl'):
+                            cmd = ['perl', tool_path, '--notes', file_path]
+                        else:
+                            cmd = ['perl', tool_path, file_path]
+                    else:
+                        cmd = ['perl', tool_path, file_path]
                 except (subprocess.CalledProcessError, FileNotFoundError):
                     if file_ext == '.pdf':
                         # PDF特殊处理：尝试Python版本
@@ -3047,69 +3334,126 @@ class HashcatGUI(QMainWindow):
                 # 可执行文件
                 cmd = [tool_path, file_path]
             
-            # 使用绝对路径并设置工作目录，处理编码错误
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30, 
-                                  encoding='utf-8', errors='replace', cwd=os.path.dirname(tool_path))
+            # 记录执行的命令到日志
+            self.log_text.append(f"执行哈希提取命令: {' '.join(cmd)}")
+            
+            # 使用绝对路径并设置工作目录，处理编码错误，设置10秒超时防止卡死
+            # 在Windows系统中使用系统默认编码来正确处理中文文件名
+            system_encoding = locale.getpreferredencoding()
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=10, 
+                                  encoding=system_encoding, errors='replace', cwd=os.path.dirname(tool_path))
+            
+            # 记录命令执行结果到日志，限制输出长度防止超长内容
+            if result.stdout:
+                stdout_output = result.stdout.strip()
+                if len(stdout_output) > 5000:  # 限制输出长度，但允许完整哈希值显示
+                    self.log_text.append(f"工具输出: {stdout_output[:100]}...[输出超过5K，已截断]...{stdout_output[-100:]}")
+                else:
+                    self.log_text.append(f"工具输出: {stdout_output}")
+            if result.stderr:
+                stderr_output = result.stderr.strip()
+                if len(stderr_output) > 1000:
+                    self.log_text.append(f"工具错误输出: {stderr_output[:100]}...[输出过长，已截断]...{stderr_output[-100:]}")
+                else:
+                    self.log_text.append(f"工具错误输出: {stderr_output}")
             
             if result.returncode != 0:
                 error_msg = result.stderr.strip() if result.stderr else "未知错误"
                 return None, f"提取哈希失败: {error_msg}"
             
-            # 安全地处理 stdout，防止 None 值
+            # 安全地处理 stdout，防止 None 值和超长输出
             output = result.stdout.strip() if result.stdout else ""
             if not output:
                 return None, "未能提取到哈希值"
+            
+            # 检查输出长度，防止超长哈希值导致程序卡死
+            if len(output) > 50000:  # 50KB限制
+                return None, f"哈希输出过长({len(output)}字符)，可能文件损坏或格式异常"
             
             # 解析输出
             for line in output.split('\n'):
                 line = line.strip()
                 if not line:
                     continue
-                    
-                # 特殊处理iTunes备份文件 - 直接输出哈希值，没有文件名前缀
-                if file_ext == '.plist' and line.startswith('$itunes_backup$'):
-                    hash_value = line
-                    hash_type = HashDetector.detect_hash_type_by_file_ext(file_ext, hash_value)
-                    return hash_value, hash_type
                 
-                # 处理其他格式的输出
-                if ':' in line and '$' in line:
-                    # 统一处理所有格式的输出
-                    hash_value = None
-                    
-                    # 处理包含::::的格式（如RAR3格式: filename:$RAR3$...:0::::filepath）
-                    if '::::' in line:
-                        parts = line.split('::::')
-                        if len(parts) >= 2:
-                            # 取第一部分，然后找第一个冒号后的内容
-                            first_part = parts[0]
-                            colon_pos = first_part.find(':')
-                            if colon_pos != -1:
-                                hash_value = first_part[colon_pos + 1:]
-                                # 移除末尾的:0部分（如果存在）
-                                if hash_value.endswith(':0'):
+                # 检查单行长度，防止超长哈希行
+                if len(line) > 10000:  # 10KB单行限制
+                    self.log_text.append(f"警告: 跳过超长哈希行({len(line)}字符)")
+                    continue
+                
+                hash_value = None
+                
+                # 方式1: 直接是哈希值（如iTunes备份）
+                if line.startswith('$'):
+                    hash_value = line
+                
+                # 方式2: 包含冒号的格式
+                elif ':' in line:
+                    # 查找$符号位置
+                    dollar_pos = line.find('$')
+                    if dollar_pos != -1:
+                        # 从$开始提取哈希部分
+                        remaining = line[dollar_pos:]
+                        
+                        # 处理特殊的::::分隔符（如某些RAR格式）
+                        if '::::' in remaining:
+                            hash_value = remaining.split('::::')[0]
+                            # 对于RAR3格式，检查并移除:0后缀
+                            if hash_value.startswith('$RAR3$') and hash_value.endswith(':0'):
+                                # RAR3格式: $RAR3$*type*salt*hash
+                                # 如果salt为空(即*0*)，则移除:0后缀
+                                if '*0*' in hash_value:
                                     hash_value = hash_value[:-2]
-                    else:
-                        # 处理标准格式: filename:$hash$...
-                        # 找到$符号的位置，从$开始提取哈希值
-                        dollar_pos = line.find('$')
-                        if dollar_pos != -1:
-                            # 从$开始到行尾或下一个::::之前
-                            hash_part = line[dollar_pos:]
-                            # 如果是RAR格式，可能包含:0后缀，需要处理
-                            if file_ext == '.rar' and ':0' in hash_part:
-                                # 找到:0的位置并截取
-                                zero_pos = hash_part.find(':0')
-                                if zero_pos != -1:
-                                    hash_value = hash_part[:zero_pos]
+                        else:
+                            # 标准格式，可能有多个冒号分隔的字段
+                            # 找到哈希结束位置（通常是第一个非哈希字符或特定模式）
+                            hash_value = remaining
+                            
+                            # 移除常见的后缀模式
+                            # 对于RAR3格式，当salt为空时不应该有:0后缀
+                            if hash_value.endswith(':0'):
+                                # 检查是否为RAR3格式且salt为空的情况
+                                if hash_value.startswith('$RAR3$'):
+                                    # RAR3格式: $RAR3$*type*salt*hash
+                                    # 如果salt为空(即*0*)，则移除:0后缀
+                                    if '*0*' in hash_value:
+                                        hash_value = hash_value[:-2]
                                 else:
-                                    hash_value = hash_part
-                            else:
-                                hash_value = hash_part
+                                    # 对于其他格式，也移除:0后缀（保持原有逻辑）
+                                    hash_value = hash_value[:-2]
+                
+                # 方式3: 保底处理 - 如果上述方法都没找到哈希，尝试其他模式
+                if not hash_value and '$' in line:
+                    # 简单提取：从第一个$到行尾
+                    dollar_pos = line.find('$')
+                    if dollar_pos != -1:
+                        hash_value = line[dollar_pos:]
+                        
+                        # 清理常见的无关后缀
+                        # 对于RAR3格式的特殊处理
+                        if hash_value.startswith('$RAR3$') and hash_value.endswith(':0'):
+                            # RAR3格式: $RAR3$*type*salt*hash
+                            # 如果salt为空(即*0*)，则移除:0后缀
+                            if '*0*' in hash_value:
+                                hash_value = hash_value[:-2]
+                        else:
+                            # 对于其他格式，清理常见后缀
+                            for suffix in [':0', '::::']:
+                                if suffix in hash_value:
+                                    hash_value = hash_value.split(suffix)[0]
+                                    break
+                
+                # 如果成功提取到哈希值，进行验证和类型检测
+                if hash_value and hash_value.startswith('$'):
+                    # 最终检查哈希值长度
+                    if len(hash_value) > 5000:  # 5KB哈希值限制
+                        return None, f"提取的哈希值过长({len(hash_value)}字符)，可能文件异常"
                     
-                    # 如果成功提取到哈希值，进行类型检测
-                    if hash_value:
+                    # 基本格式验证：确保哈希值看起来合理
+                    if '$' in hash_value and len(hash_value) > 10:
                         hash_type = HashDetector.detect_hash_type_by_file_ext(file_ext, hash_value)
+                        # 保存到缓存
+                        self.hash_cache[file_path] = (hash_value, hash_type, file_mtime)
                         return hash_value, hash_type
             
             return None, "无法解析哈希值"
@@ -3123,8 +3467,224 @@ class HashcatGUI(QMainWindow):
         except Exception as e:
             return None, f"提取哈希时出错: {str(e)}"
     
+    def clear_hash_cache(self, max_entries: int = 100) -> None:
+        """清理哈希缓存
+        
+        Args:
+            max_entries: 最大缓存条目数，超过时清理最旧的条目
+        """
+        function_logger.debug(f"HashcatGUI.clear_hash_cache called with max_entries: {max_entries}")
+        try:
+            # 清理不存在的文件的缓存条目
+            invalid_paths = []
+            for file_path in self.hash_cache:
+                if not os.path.exists(file_path):
+                    invalid_paths.append(file_path)
+            
+            for path in invalid_paths:
+                del self.hash_cache[path]
+                self.log_text.append(f"清理无效缓存条目: {path}")
+            
+            # 如果缓存条目过多，清理最旧的条目
+            if len(self.hash_cache) > max_entries:
+                # 按文件修改时间排序，保留最新的条目
+                sorted_items = sorted(self.hash_cache.items(), 
+                                     key=lambda x: x[1][2], reverse=True)
+                
+                # 保留最新的max_entries个条目
+                self.hash_cache = dict(sorted_items[:max_entries])
+                
+                removed_count = len(sorted_items) - max_entries
+                if removed_count > 0:
+                    self.log_text.append(f"清理了{removed_count}个旧缓存条目")
+                    
+        except Exception as e:
+            self.log_text.append(f"清理缓存时出错: {str(e)}")
+    
+    def _detect_veracrypt_file(self, file_path: str) -> Optional[str]:
+        """检测无扩展名的VeraCrypt文件
+        
+        Args:
+            file_path: 文件路径
+            
+        Returns:
+            VeraCrypt工具路径，如果不是VeraCrypt文件则返回None
+        """
+        try:
+            # VeraCrypt文件头部特征检测
+            with open(file_path, 'rb') as f:
+                # 读取前512字节用于检测
+                header = f.read(512)
+                
+                # VeraCrypt文件通常在偏移64字节处有特定的签名
+                # 检查文件大小是否合理（至少1MB，通常更大）
+                file_size = os.path.getsize(file_path)
+                if file_size < 1024 * 1024:  # 小于1MB的文件不太可能是VeraCrypt容器
+                    return None
+                
+                # 检查是否包含VeraCrypt的特征字节
+                # VeraCrypt容器通常在特定位置有加密的头部信息
+                # 由于是加密的，我们主要检查文件大小和结构
+                
+                # 检查文件大小是否为512的倍数（VeraCrypt容器的特征）
+                if file_size % 512 != 0:
+                    return None
+                    
+                # 获取hashcat工具路径
+                hashcat_path = self.hashcat_path_edit.text().strip()
+                if not hashcat_path:
+                    return None
+                    
+                # 处理相对路径和绝对路径
+                if not os.path.isabs(hashcat_path):
+                    hashcat_path_abs = os.path.abspath(hashcat_path)
+                else:
+                    hashcat_path_abs = hashcat_path
+                    
+                # 如果是hashcat.exe文件路径，获取其目录
+                if os.path.isfile(hashcat_path_abs) and hashcat_path_abs.endswith('hashcat.exe'):
+                    hashcat_dir = os.path.dirname(hashcat_path_abs)
+                elif os.path.isdir(hashcat_path_abs):
+                    hashcat_dir = hashcat_path_abs
+                else:
+                    return None
+                    
+                # hashcat工具在tools子目录中
+                tools_dir = os.path.join(hashcat_dir, 'tools')
+                if not os.path.exists(tools_dir):
+                    return None
+                    
+                # 返回VeraCrypt工具路径
+                veracrypt_tool_path = os.path.join(tools_dir, Config.VERACRYPT2HASHCAT_PY)
+                if os.path.exists(veracrypt_tool_path):
+                    return veracrypt_tool_path
+                else:
+                    return None
+                    
+        except Exception as e:
+            # 如果读取文件出错，返回None
+            return None
+    
+    def _get_hashcat_tool_path(self, file_ext: str, file_path: str = None) -> Optional[str]:
+        """获取hashcat工具路径
+        
+        Args:
+            file_ext: 文件扩展名
+            
+        Returns:
+            hashcat工具的完整路径，如果不支持则返回None
+        """
+        function_logger.debug(f"HashcatGUI._get_hashcat_tool_path called with file_ext: {file_ext}")
+        
+        # 获取hashcat路径
+        hashcat_path = self.hashcat_path_edit.text().strip()
+        if not hashcat_path:
+            return None
+            
+        # 处理相对路径和绝对路径
+        if not os.path.isabs(hashcat_path):
+            hashcat_path_abs = os.path.abspath(hashcat_path)
+        else:
+            hashcat_path_abs = hashcat_path
+            
+        # 如果是hashcat.exe文件路径，获取其目录
+        if os.path.isfile(hashcat_path_abs) and hashcat_path_abs.endswith('hashcat.exe'):
+            hashcat_dir = os.path.dirname(hashcat_path_abs)
+        elif os.path.isdir(hashcat_path_abs):
+            hashcat_dir = hashcat_path_abs
+        else:
+            return None
+            
+        # hashcat工具在tools子目录中
+        tools_dir = os.path.join(hashcat_dir, 'tools')
+        if not os.path.exists(tools_dir):
+            return None
+            
+        # 根据文件扩展名选择对应的hashcat工具
+        # 注意：某些扩展名可能与john工具重叠，hashcat工具优先级较低
+        tool_mapping = {
+            '.aes': Config.AESCRYPT2HASHCAT_PL,
+            # Bitwarden: 通过特定文件名识别
+            '.loop': Config.CRYPTOLOOP2HASHCAT_PY,
+            # Exodus: 特定文件名 seed.seco
+            '.luks': Config.LUKS2HASHCAT_PY,
+            '.metamask': Config.METAMASK2HASHCAT_PY,
+            '.v2': Config.RADMIN3_TO_HASHCAT_PL,  # Radmin 3
+            '.notes': Config.SECURENOTES2HASHCAT_PL,
+            # SQLCipher: 需要特殊处理，避免与普通.db文件冲突
+            '.tc': Config.TRUECRYPT2HASHCAT_PY,
+            '.vc': Config.VERACRYPT2HASHCAT_PY,
+            '.vdi': Config.VIRTUALBOX2HASHCAT_PY,  # VirtualBox磁盘镜像
+            '.vmx': Config.VMWAREVMX2HASHCAT_PY,  # VMware配置文件
+        }
+        
+        # 特殊文件名处理
+        if file_path:
+            filename = os.path.basename(file_path).lower()
+            if filename == 'seed.seco':
+                tool_name = Config.EXODUS2HASHCAT_PY
+            elif filename.endswith('.json') and 'bitwarden' in filename:
+                tool_name = Config.BITWARDEN2HASHCAT_PY
+            elif filename.endswith('.key3.db') or filename.endswith('.key4.db'):
+                tool_name = Config.MOZILLA2HASHCAT_PY
+            else:
+                tool_name = tool_mapping.get(file_ext)
+        else:
+            tool_name = tool_mapping.get(file_ext)
+        
+        if not tool_name:
+            return None
+            
+        tool_path = os.path.join(tools_dir, tool_name)
+        if os.path.exists(tool_path):
+            return tool_path
+        else:
+            return None
+    
+    def _update_command_preview_with_hash(self, hash_value: str) -> None:
+        """使用已提取的哈希值更新命令预览
+        
+        Args:
+            hash_value: 已提取的哈希值
+        """
+        function_logger.debug(f"HashcatGUI._update_command_preview_with_hash called with hash_value: {hash_value[:50]}...")
+        try:
+            if not hash_value:
+                return
+            
+            cmd = self._build_base_command()
+            if not cmd:
+                return
+            
+            self._add_command_options(cmd)
+            cmd.append(hash_value)
+            
+            # 显示命令
+            cmd_str = ' '.join(f'"{arg}"' if ' ' in arg else arg for arg in cmd)
+            self.cmd_text.setText(cmd_str)
+            self.start_btn.setEnabled(True)
+            
+        except Exception as e:
+            ErrorHandler.handle_error(e, "生成命令时出错")
+            self.cmd_text.setText(f"生成命令时出错: {str(e)}")
+            self.start_btn.setEnabled(False)
+     
     def update_command_preview(self) -> None:
-        """更新命令预览"""
+        """更新命令预览（带防抖机制）"""
+        function_logger.debug("HashcatGUI.update_command_preview called")
+        
+        # 防抖机制：取消之前的定时器
+        if hasattr(self, '_update_timer'):
+            self._update_timer.stop()
+        
+        # 创建新的定时器，延迟100ms执行
+        self._update_timer = QTimer()
+        self._update_timer.setSingleShot(True)
+        self._update_timer.timeout.connect(self._do_update_command_preview)
+        self._update_timer.start(100)
+    
+    def _do_update_command_preview(self) -> None:
+        """实际执行命令预览更新"""
         try:
             hash_to_crack = self._get_hash_input()
             if not hash_to_crack:
@@ -3147,37 +3707,61 @@ class HashcatGUI(QMainWindow):
             self.cmd_text.setText(f"生成命令时出错: {str(e)}")
             self.start_btn.setEnabled(False)
     
-    def _get_hash_input(self) -> Optional[str]:
-        """获取哈希输入"""
+    def _get_hash_input(self, cached_hash_value: Optional[str] = None) -> Optional[str]:
+        """获取哈希输入
+        
+        Args:
+            cached_hash_value: 可选的缓存哈希值
+        """
+        function_logger.debug("HashcatGUI._get_hash_input called")
         if self.file_radio.isChecked():
-            return self._handle_file_mode()
+            return self._handle_file_mode(cached_hash_value)
         elif self.text_radio.isChecked():
             return self._handle_text_mode()
         else:
             return self._handle_batch_mode()
     
-    def _handle_file_mode(self) -> Optional[str]:
-        """处理文件模式"""
+    def _handle_file_mode(self, cached_hash_value: Optional[str] = None) -> Optional[str]:
+        """处理文件模式
+        
+        Args:
+            cached_hash_value: 可选的缓存哈希值，如果提供则不重新提取
+        """
+        function_logger.debug("HashcatGUI._handle_file_mode called")
         file_path = self.file_path_edit.text().strip()
         if not file_path:
             self.cmd_text.setText("请选择要破解的文件")
             return None
         
-        hash_value, hash_type_or_error = self.get_hash_from_file(file_path)
+        # 如果提供了缓存的哈希值，直接使用
+        if cached_hash_value:
+            return cached_hash_value
+        
+        # 在命令预览更新时，不输出缓存信息以避免重复输出
+        hash_value, hash_type_or_error = self.get_hash_from_file(file_path, silent_cache=True)
         if hash_value is None:
             self.cmd_text.setText(f"错误: {hash_type_or_error}")
             return None
         
-        # 设置哈希类型
-        for i in range(self.hash_type_combo.count()):
-            if self.hash_type_combo.itemText(i).startswith(hash_type_or_error):
-                self.hash_type_combo.setCurrentIndex(i)
-                break
+        # 只有在首次检测或用户未手动选择时才自动设置哈希类型
+        # 检查当前选择的哈希类型是否与检测到的类型匹配
+        current_hash_type = self.hash_type_combo.currentText().split(' - ')[0]
+        detected_hash_type = hash_type_or_error
+        
+        # 如果当前选择的类型与检测到的类型不匹配，且不是用户手动选择的，则自动设置
+        if not current_hash_type.startswith(detected_hash_type):
+            # 检查是否有用户手动选择的标记
+            if not hasattr(self, '_user_selected_hash_type') or not self._user_selected_hash_type:
+                for i in range(self.hash_type_combo.count()):
+                    if self.hash_type_combo.itemText(i).startswith(hash_type_or_error):
+                        self.hash_type_combo.setCurrentIndex(i)
+                        break
         
         return hash_value
     
     def _handle_text_mode(self) -> Optional[str]:
         """处理文本模式"""
+        function_logger.debug("HashcatGUI._handle_text_mode called")
         hash_to_crack = self.hash_edit.text().strip()
         if not hash_to_crack:
             self.cmd_text.setText("请输入哈希值")
@@ -3186,6 +3770,7 @@ class HashcatGUI(QMainWindow):
     
     def _handle_batch_mode(self) -> Optional[str]:
         """处理批量模式"""
+        function_logger.debug("HashcatGUI._handle_batch_mode called")
         batch_file = self.batch_path_edit.text().strip()
         if not batch_file:
             self.cmd_text.setText("请选择哈希列表文件")
@@ -3194,6 +3779,7 @@ class HashcatGUI(QMainWindow):
     
     def _build_base_command(self) -> Optional[List[str]]:
         """构建基础命令"""
+        function_logger.debug("HashcatGUI._build_base_command called")
         hashcat_exe = self.get_hashcat_exe_path()
         if not hashcat_exe:
             self.cmd_text.setText("错误: 请先在路径配置中设置正确的Hashcat路径")
@@ -3207,6 +3793,7 @@ class HashcatGUI(QMainWindow):
     
     def _add_command_options(self, cmd: List[str]) -> None:
         """添加命令选项"""
+        function_logger.debug("HashcatGUI._add_command_options called")
         # 哈希类型
         hash_type = self.hash_type_combo.currentText().split(' - ')[0]
         cmd.extend(['-m', hash_type])
@@ -3249,6 +3836,7 @@ class HashcatGUI(QMainWindow):
     
     def _add_device_options(self, cmd: List[str]) -> None:
         """添加设备选择选项"""
+        function_logger.debug("HashcatGUI._add_device_options called")
         if hasattr(self, 'get_selected_devices'):
             selected_devices = self.get_selected_devices()
             manual_device_id = getattr(self, 'manual_device_edit', None)
@@ -3261,6 +3849,7 @@ class HashcatGUI(QMainWindow):
     
     def _add_custom_charsets(self, cmd: List[str]) -> None:
         """添加自定义字符集"""
+        function_logger.debug("HashcatGUI._add_custom_charsets called")
         charset_edits = [
             (self.charset1_edit, '-1'),
             (self.charset2_edit, '-2'),
@@ -3274,6 +3863,7 @@ class HashcatGUI(QMainWindow):
     
     def _add_performance_options(self, cmd: List[str]) -> None:
         """添加性能调优选项"""
+        function_logger.debug("HashcatGUI._add_performance_options called")
         if hasattr(self, 'kernel_loops_edit') and self.kernel_loops_edit.text().strip():
             cmd.extend(['-n', self.kernel_loops_edit.text().strip()])
         if hasattr(self, 'kernel_threads_edit') and self.kernel_threads_edit.text().strip():
@@ -3283,6 +3873,7 @@ class HashcatGUI(QMainWindow):
     
     def _add_safety_options(self, cmd: List[str]) -> None:
         """添加安全选项"""
+        function_logger.debug("HashcatGUI._add_safety_options called")
         if hasattr(self, 'temp_abort_edit') and self.temp_abort_edit.text().strip():
             cmd.extend(['--hwmon-temp-abort', self.temp_abort_edit.text().strip()])
         if hasattr(self, 'runtime_edit') and self.runtime_edit.text().strip():
@@ -3294,6 +3885,7 @@ class HashcatGUI(QMainWindow):
     
     def _add_attack_parameters(self, cmd: List[str]) -> None:
         """添加攻击参数（字典或掩码）"""
+        function_logger.debug("HashcatGUI._add_attack_parameters called")
         if self.show_potfile_check.isChecked():
             return
         
@@ -3318,6 +3910,7 @@ class HashcatGUI(QMainWindow):
     
     def validate_mask(self, mask: str) -> Optional[str]:
         """验证掩码中的自定义字符集"""
+        function_logger.debug(f"HashcatGUI.validate_mask called with mask: {mask}")
         used_charsets = self._extract_custom_charsets_from_mask(mask)
         missing_charsets = self._check_missing_charsets(used_charsets)
         
@@ -3330,6 +3923,7 @@ class HashcatGUI(QMainWindow):
     
     def _extract_custom_charsets_from_mask(self, mask: str) -> Set[str]:
         """从掩码中提取使用的自定义字符集"""
+        function_logger.debug(f"HashcatGUI._extract_custom_charsets_from_mask called with mask: {mask}")
         used_charsets = set()
         i = 0
         while i < len(mask):
@@ -3344,6 +3938,7 @@ class HashcatGUI(QMainWindow):
     
     def _check_missing_charsets(self, used_charsets: Set[str]) -> List[str]:
         """检查缺失的自定义字符集"""
+        function_logger.debug(f"HashcatGUI._check_missing_charsets called with used_charsets: {used_charsets}")
         charset_mapping = {
             '1': self.charset1_edit,
             '2': self.charset2_edit,
@@ -3361,6 +3956,7 @@ class HashcatGUI(QMainWindow):
     
     def on_show_potfile_toggled(self, checked):
         """处理显示已破解密码选项的切换"""
+        function_logger.debug(f"HashcatGUI.on_show_potfile_toggled called with checked: {checked}")
         if checked:
             # 显示已破解密码时，禁用增量和掩码相关控件
             self.increment_check.setChecked(False)
@@ -3383,6 +3979,7 @@ class HashcatGUI(QMainWindow):
     
     def start_crack(self):
         """开始破解"""
+        function_logger.debug("HashcatGUI.start_crack called")
         if self.worker and self.worker.isRunning():
             QMessageBox.warning(self, "警告", "已有任务在运行中")
             return
@@ -3464,6 +4061,8 @@ class HashcatGUI(QMainWindow):
     
     def stop_crack(self):
         """停止破解"""
+        function_logger.debug("HashcatGUI.stop_crack called")
+        """停止破解"""
         if self.worker and self.worker.isRunning():
             self.worker.stop()
             self.log_text.append("\n用户停止了破解过程")
@@ -3481,11 +4080,22 @@ class HashcatGUI(QMainWindow):
     
     def on_output(self, text):
         """处理输出"""
+        function_logger.debug(f"HashcatGUI.on_output called with text: {text[:100]}...")
         try:
             # 检测是否包含破解成功的hash:password格式
             import re
-            hash_password_pattern = r'([a-fA-F0-9]{32,}):(.+)'
-            match = re.search(hash_password_pattern, text)
+            
+            # 首先检测是否是错误信息，避免误判
+            error_indicators = [
+                "Token length exception",
+                "malformed",
+                "No hashes loaded",
+                "This error happens if",
+                "wrong hash type",
+                "not as expected"
+            ]
+            
+            is_error = any(indicator in text for indicator in error_indicators)
             
             # 检测是否所有哈希都已在potfile中找到
             if "All hashes found as potfile" in text and "Use --show to display them" in text:
@@ -3495,31 +4105,39 @@ class HashcatGUI(QMainWindow):
                 self.auto_show_potfile_results()
                 return
             
-            if match:
-                # 找到hash:password格式，高亮显示密码部分
-                hash_part = match.group(1)
-                password_part = match.group(2)
+            # 只有在不是错误信息的情况下才检测破解成功
+            if not is_error:
+                hash_password_pattern = r'([a-fA-F0-9]{32,}):(.+)'
+                match = re.search(hash_password_pattern, text)
                 
-                # 构建带格式的HTML文本
-                highlighted_text = text.replace(
-                    f"{hash_part}:{password_part}",
-                    f"{hash_part}:<span style='color: red; font-weight: 900; font-size: 14px;'>{password_part}</span>"
-                )
-                
-                # 使用HTML格式插入文本
-                cursor = self.log_text.textCursor()
-                cursor.movePosition(cursor.End)
-                cursor.insertHtml(highlighted_text + "<br>")
-                
-                # 发送成功信号到主线程显示消息框
-                if hasattr(self, 'worker') and self.worker:
-                     self.worker.success_signal.emit(hash_part, password_part)
-                else:
-                     # 备用方案：在日志中显示结果
-                     self.log_text.append(f"破解成功！明文：{password_part}")
-            else:
-                # 普通文本直接添加
-                self.log_text.append(text)
+                if match:
+                    # 找到hash:password格式，进一步验证这是真正的破解结果
+                    hash_part = match.group(1)
+                    password_part = match.group(2)
+                    
+                    # 额外验证：确保不包含错误关键词
+                    if not any(keyword in password_part for keyword in ["exception", "error", "failed"]):
+                        # 构建带格式的HTML文本
+                        highlighted_text = text.replace(
+                            f"{hash_part}:{password_part}",
+                            f"{hash_part}:<span style='color: red; font-weight: 900; font-size: 14px;'>{password_part}</span>"
+                        )
+                        
+                        # 使用HTML格式插入文本
+                        cursor = self.log_text.textCursor()
+                        cursor.movePosition(cursor.End)
+                        cursor.insertHtml(highlighted_text + "<br>")
+                        
+                        # 发送成功信号到主线程显示消息框
+                        if hasattr(self, 'worker') and self.worker:
+                             self.worker.success_signal.emit(hash_part, password_part)
+                        else:
+                             # 备用方案：在日志中显示结果
+                             self.log_text.append(f"破解成功！明文：{password_part}")
+                        return
+            
+            # 普通文本直接添加
+            self.log_text.append(text)
             
             # 自动滚动到底部
             cursor = self.log_text.textCursor()
@@ -3540,6 +4158,7 @@ class HashcatGUI(QMainWindow):
     
     def on_finished(self, return_code):
         """处理完成"""
+        function_logger.debug(f"HashcatGUI.on_finished called with return_code: {return_code}")
         self.start_btn.setEnabled(True)
         self.stop_btn.setEnabled(False)
         self.progress_bar.setVisible(False)
@@ -3560,6 +4179,8 @@ class HashcatGUI(QMainWindow):
         self.worker = None
     
     def on_crack_success(self, hash_part, password_part):
+        """处理破解成功"""
+        function_logger.debug(f"HashcatGUI.on_crack_success called with hash_part: {hash_part[:20]}..., password_part: {password_part}")
         """处理破解成功信号，在状态栏显示破解结果"""
         try:
             # 在状态栏显示破解成功信息
@@ -3573,6 +4194,7 @@ class HashcatGUI(QMainWindow):
     
     def parse_hashcat_status(self, text):
         """解析hashcat状态信息并更新状态栏"""
+        function_logger.debug(f"HashcatGUI.parse_hashcat_status called with text: {text[:100]}...")
         try:
             import re
             
@@ -3655,6 +4277,7 @@ class HashcatGUI(QMainWindow):
     
     def format_eta_chinese(self, eta_text):
         """将预计完成时间转换为中文格式"""
+        function_logger.debug(f"HashcatGUI.format_eta_chinese called with eta_text: {eta_text}")
         try:
             import datetime
             import re
@@ -3731,6 +4354,7 @@ class HashcatGUI(QMainWindow):
     
     def format_elapsed_chinese(self, elapsed_text):
         """将运行时长转换为中文格式"""
+        function_logger.debug(f"HashcatGUI.format_elapsed_chinese called with elapsed_text: {elapsed_text}")
         try:
             import re
             
@@ -3767,7 +4391,8 @@ class HashcatGUI(QMainWindow):
             return elapsed_text
     
     def update_status_bar(self):
-        """更新状态栏显示"""
+        """更新状态栏显示（带状态缓存优化）"""
+        function_logger.debug("HashcatGUI.update_status_bar called")
         try:
             # 检查是否有实际的监控数据
             has_data = any(value != '--' for value in self.status_info.values())
@@ -3785,16 +4410,21 @@ class HashcatGUI(QMainWindow):
                     # 没有数据且不在爆破中时显示就绪状态
                     status_text = "就绪"
             
-            self.statusBar().showMessage(status_text)
+            # 状态缓存优化：只在状态文本变化时才更新UI
+            if not hasattr(self, '_last_status_text') or self._last_status_text != status_text:
+                self.statusBar().showMessage(status_text)
+                self._last_status_text = status_text
+                
         except:
             # 异常情况下，如果正在爆破则显示正在破解，否则显示就绪
-            if hasattr(self, 'is_cracking') and self.is_cracking:
-                self.statusBar().showMessage("正在破解...")
-            else:
-                self.statusBar().showMessage("就绪")
+            fallback_text = "正在破解..." if (hasattr(self, 'is_cracking') and self.is_cracking) else "就绪"
+            if not hasattr(self, '_last_status_text') or self._last_status_text != fallback_text:
+                self.statusBar().showMessage(fallback_text)
+                self._last_status_text = fallback_text
     
     def auto_show_potfile_results(self):
         """自动执行--show命令显示potfile中的结果"""
+        function_logger.debug("HashcatGUI.auto_show_potfile_results called")
         try:
             import subprocess
             import os
@@ -3834,7 +4464,10 @@ class HashcatGUI(QMainWindow):
             
             # 执行--show命令
             self.log_text.append(f"执行命令: {' '.join(show_cmd)}")
-            result = subprocess.run(show_cmd, cwd=work_dir, capture_output=True, text=True, timeout=30)
+            # 使用系统默认编码来正确处理中文文件名和输出
+            system_encoding = locale.getpreferredencoding()
+            result = subprocess.run(show_cmd, cwd=work_dir, capture_output=True, text=True, 
+                                  timeout=30, encoding=system_encoding, errors='replace')
             
             if result.returncode == 0 and result.stdout.strip():
                 # 成功获取到结果
@@ -3870,6 +4503,7 @@ class HashcatGUI(QMainWindow):
     
     def on_mask_template_changed(self, template_text):
         """处理掩码模板选择变化"""
+        function_logger.debug(f"HashcatGUI.on_mask_template_changed called with template_text: {template_text}")
         if template_text == "自定义":
             return
         
@@ -3882,6 +4516,7 @@ class HashcatGUI(QMainWindow):
     
     def browse_batch_file(self):
         """浏览批量哈希文件"""
+        function_logger.debug("HashcatGUI.browse_batch_file called")
         file_path, _ = QFileDialog.getOpenFileName(
             self, "选择哈希列表文件", "", 
             "文本文件 (*.txt);;所有文件 (*.*)"
@@ -3892,6 +4527,7 @@ class HashcatGUI(QMainWindow):
     
     def load_help_content(self):
         """加载帮助文档内容"""
+        function_logger.debug("HashcatGUI.load_help_content called")
         try:
             # 尝试读取hashcat.md文件
             help_file_path = os.path.join(os.path.dirname(__file__), "hashcat.md")
@@ -3966,12 +4602,14 @@ class HashcatGUI(QMainWindow):
     
     def update_performance_settings_in_command(self):
         """更新命令中的性能设置"""
+        function_logger.debug("HashcatGUI.update_performance_settings_in_command called")
         # 这个方法会在update_command_preview中被调用
         # 用于添加新的性能和安全参数到命令中
         pass
     
     def closeEvent(self, event):
         """程序关闭事件处理"""
+        function_logger.debug("HashcatGUI.closeEvent called")
         try:
             # 如果有正在运行的hashcat进程，先停止它
             if self.worker and self.worker.isRunning():
@@ -3991,6 +4629,7 @@ class HashcatGUI(QMainWindow):
             event.accept()
 
 def main():
+    function_logger.debug("main function called")
     app = QApplication(sys.argv)
     app.setStyle('Fusion')  # 使用现代风格
     

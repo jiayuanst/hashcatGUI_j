@@ -12,6 +12,11 @@ import locale
 import datetime
 from typing import Optional, Tuple, Dict, List, Any, Set
 from functools import lru_cache
+try:
+    from pypinyin import pinyin, lazy_pinyin, Style
+    PINYIN_AVAILABLE = True
+except ImportError:
+    PINYIN_AVAILABLE = False
 
 # 配置日志记录
 logging.basicConfig(
@@ -28,7 +33,7 @@ from PyQt5.QtWidgets import (
     QTabWidget, QLabel, QLineEdit, QPushButton, QTextEdit, QComboBox,
     QCheckBox, QFileDialog, QMessageBox, QGroupBox, QGridLayout,
     QRadioButton, QButtonGroup, QProgressBar, QSplitter, QDialog,
-    QDialogButtonBox, QSpinBox, QFrame
+    QDialogButtonBox, QSpinBox, QFrame, QScrollArea, QProgressDialog
 )
 from PyQt5.QtCore import QThread, pyqtSignal, Qt, QMimeData, QTimer
 from PyQt5.QtGui import QFont, QIcon, QDrag, QPalette
@@ -1300,6 +1305,9 @@ class HashcatGUI(QMainWindow):
         }
         self.is_cracking: bool = False
         
+        # 破解成功检测标志
+        self.crack_success_detected: bool = False
+        
         # 哈希提取缓存 - 避免重复调用xxx2john工具
         # 格式: {文件路径: (哈希值, 哈希类型, 文件修改时间)}
         self.hash_cache: Dict[str, Tuple[str, str, float]] = {}
@@ -1354,6 +1362,112 @@ class HashcatGUI(QMainWindow):
         except Exception as e:
             print(f"应用掩码设置失败: {e}")
     
+    def process_chinese_name(self, name: str) -> List[str]:
+        """处理姓名，生成拼音变体（中文转拼音，非中文直接处理）"""
+        function_logger.debug(f"HashcatGUI.process_chinese_name called with name='{name}'")
+        result = []
+        
+        # 检查是否包含中文字符
+        has_chinese = any('\u4e00' <= char <= '\u9fff' for char in name)
+        
+        if not has_chinese:
+            # 非中文名字的处理
+            result.extend([name, name.lower(), name.upper(), name.capitalize()])
+            return result
+        
+        if not PINYIN_AVAILABLE:
+            # 如果没有拼音库，对于中文名字只返回空列表
+            return []
+        
+        try:
+            # 获取全拼
+            full_pinyin = ''.join(lazy_pinyin(name, style=Style.NORMAL))
+            if full_pinyin:
+                result.extend([
+                    full_pinyin.lower(),
+                    full_pinyin.upper(), 
+                    full_pinyin.capitalize()
+                ])
+            
+            # 获取每个字单独大写首字母的拼音（如：张三 -> ZhangSan）
+            char_pinyin_list = lazy_pinyin(name, style=Style.NORMAL)
+            if char_pinyin_list:
+                capitalized_pinyin = ''.join([pinyin.capitalize() for pinyin in char_pinyin_list])
+                if capitalized_pinyin and capitalized_pinyin not in result:
+                    result.append(capitalized_pinyin)
+            
+            # 获取首字母
+            initials = ''.join(lazy_pinyin(name, style=Style.FIRST_LETTER))
+            if initials:
+                result.extend([
+                    initials.lower(),
+                    initials.upper()
+                ])
+            
+            # 处理姓氏（支持复姓）
+            surnames = self.extract_chinese_surname(name)
+            for surname in surnames:
+                # 姓氏全拼
+                surname_pinyin = ''.join(lazy_pinyin(surname, style=Style.NORMAL))
+                if surname_pinyin:
+                    result.extend([
+                        surname_pinyin.lower(),
+                        surname_pinyin.upper(),
+                        surname_pinyin.capitalize()
+                    ])
+                
+                # 姓氏首字母
+                surname_initial = ''.join(lazy_pinyin(surname, style=Style.FIRST_LETTER))
+                if surname_initial:
+                    result.extend([
+                        surname_initial.lower(),
+                        surname_initial.upper()
+                    ])
+        
+        except Exception as e:
+            function_logger.error(f"处理中文姓名拼音失败: {e}")
+        
+        # 去重并保持顺序
+        seen = set()
+        unique_result = []
+        for item in result:
+            if item and item not in seen:
+                seen.add(item)
+                unique_result.append(item)
+        
+        return unique_result
+    
+    def extract_chinese_surname(self, name: str) -> List[str]:
+        """提取中文姓氏（支持复姓）"""
+        function_logger.debug(f"HashcatGUI.extract_chinese_surname called with name='{name}'")
+        
+        # 常见复姓列表
+        compound_surnames = [
+            '欧阳', '太史', '端木', '上官', '司马', '东方', '独孤', '南宫', '万俟', '闻人',
+            '夏侯', '诸葛', '尉迟', '公羊', '赫连', '澹台', '皇甫', '宗政', '濮阳', '公冶',
+            '太叔', '申屠', '公孙', '慕容', '仲孙', '钟离', '长孙', '宇文', '司徒', '鲜于',
+            '司空', '闾丘', '子车', '亓官', '司寇', '巫马', '公西', '颛孙', '壤驷', '公良',
+            '漆雕', '乐正', '宰父', '谷梁', '拓跋', '夹谷', '轩辕', '令狐', '段干', '百里',
+            '呼延', '东郭', '南门', '羊舌', '微生', '公户', '公玉', '公仪', '梁丘', '公仲',
+            '公上', '公门', '公山', '公坚', '左丘', '公伯', '西门', '公祖', '第五', '公乘',
+            '贯丘', '公皙', '南荣', '东里', '东宫', '仲长', '子书', '子桑', '即墨', '达奚',
+            '褚师'
+        ]
+        
+        surnames = []
+        
+        # 检查复姓
+        for compound in compound_surnames:
+            if name.startswith(compound):
+                surnames.append(compound)
+                break
+        else:
+            # 如果没有复姓，取第一个字作为单姓
+            if name:
+                surnames.append(name[0])
+        
+        return surnames
+    
     def init_ui(self):
         """初始化用户界面"""
         function_logger.debug("HashcatGUI.init_ui called")
@@ -1370,6 +1484,7 @@ class HashcatGUI(QMainWindow):
         # 创建各个标签页
         self.create_main_tab()
         self.create_config_tab()
+        self.create_dict_generator_tab()
         self.create_help_tab()
         
         # 连接所有信号（确保所有控件都已创建）
@@ -1377,6 +1492,9 @@ class HashcatGUI(QMainWindow):
         
         # 应用保存的掩码设置
         self.apply_saved_mask_settings()
+        
+        # 初始计算候选数量
+        self.calculate_main_candidates()
         
         # 状态栏 - 初始化监控信息显示
         self.status_info = {
@@ -2033,6 +2151,7 @@ class HashcatGUI(QMainWindow):
         self.mask_edit = QLineEdit("?a?a?a?a?a?a?a?a")
         self.mask_edit.textChanged.connect(self.update_command_preview)
         self.mask_edit.textChanged.connect(self.save_config)  # 自动保存配置
+        self.mask_edit.textChanged.connect(self.calculate_main_candidates)  # 计算候选数量
         dict_layout.addWidget(self.mask_edit, 1, 1)
         
         # 掩码生成器按钮
@@ -2066,46 +2185,55 @@ class HashcatGUI(QMainWindow):
         self.mask_info.setStyleSheet("color: gray; font-size: 12px;")
         dict_layout.addWidget(self.mask_info, 3, 1, 1, 2)
         
+        # 预计候选数量显示
+        self.main_candidates_label = QLabel("预计候选数量: 计算中...")
+        self.main_candidates_label.setStyleSheet("color: blue; font-weight: bold; font-size: 12px;")
+        dict_layout.addWidget(self.main_candidates_label, 4, 1, 1, 2)
+        
         # 自定义字符集 (-1 -2 -3 -4)
         charset_label = QLabel("自定义字符集:")
-        dict_layout.addWidget(charset_label, 4, 0)
+        dict_layout.addWidget(charset_label, 5, 0)
         
         # -1 字符集
-        dict_layout.addWidget(QLabel("-1:"), 5, 0)
+        dict_layout.addWidget(QLabel("-1:"), 6, 0)
         self.charset1_edit = QLineEdit()
         self.charset1_edit.setPlaceholderText("例如: abcdef0123456789")
         self.charset1_edit.textChanged.connect(self.update_command_preview)
         self.charset1_edit.textChanged.connect(self.save_config)  # 自动保存配置
-        dict_layout.addWidget(self.charset1_edit, 5, 1, 1, 2)
+        self.charset1_edit.textChanged.connect(self.calculate_main_candidates)  # 计算候选数量
+        dict_layout.addWidget(self.charset1_edit, 6, 1, 1, 2)
         
         # -2 字符集
-        dict_layout.addWidget(QLabel("-2:"), 6, 0)
+        dict_layout.addWidget(QLabel("-2:"), 7, 0)
         self.charset2_edit = QLineEdit()
         self.charset2_edit.setPlaceholderText("例如: ABCDEF")
         self.charset2_edit.textChanged.connect(self.update_command_preview)
         self.charset2_edit.textChanged.connect(self.save_config)  # 自动保存配置
-        dict_layout.addWidget(self.charset2_edit, 6, 1, 1, 2)
+        self.charset2_edit.textChanged.connect(self.calculate_main_candidates)  # 计算候选数量
+        dict_layout.addWidget(self.charset2_edit, 7, 1, 1, 2)
         
         # -3 字符集
-        dict_layout.addWidget(QLabel("-3:"), 7, 0)
+        dict_layout.addWidget(QLabel("-3:"), 8, 0)
         self.charset3_edit = QLineEdit()
         self.charset3_edit.setPlaceholderText("例如: !@#$%^&*")
         self.charset3_edit.textChanged.connect(self.update_command_preview)
         self.charset3_edit.textChanged.connect(self.save_config)  # 自动保存配置
-        dict_layout.addWidget(self.charset3_edit, 7, 1, 1, 2)
+        self.charset3_edit.textChanged.connect(self.calculate_main_candidates)  # 计算候选数量
+        dict_layout.addWidget(self.charset3_edit, 8, 1, 1, 2)
         
         # -4 字符集
-        dict_layout.addWidget(QLabel("-4:"), 8, 0)
+        dict_layout.addWidget(QLabel("-4:"), 9, 0)
         self.charset4_edit = QLineEdit()
         self.charset4_edit.setPlaceholderText("例如: 0123456789")
         self.charset4_edit.textChanged.connect(self.update_command_preview)
         self.charset4_edit.textChanged.connect(self.save_config)  # 自动保存配置
-        dict_layout.addWidget(self.charset4_edit, 8, 1, 1, 2)
+        self.charset4_edit.textChanged.connect(self.calculate_main_candidates)  # 计算候选数量
+        dict_layout.addWidget(self.charset4_edit, 9, 1, 1, 2)
         
         # 自定义字符集说明
         charset_info = QLabel("在掩码中使用 ?1 ?2 ?3 ?4 来引用自定义字符集")
         charset_info.setStyleSheet("color: gray; font-size: 12px;")
-        dict_layout.addWidget(charset_info, 9, 1, 1, 2)
+        dict_layout.addWidget(charset_info, 10, 1, 1, 2)
         
         left_layout.addWidget(dict_group)
         
@@ -2401,6 +2529,1313 @@ class HashcatGUI(QMainWindow):
         layout.addWidget(output_group)
         
         layout.addStretch()
+    
+    def create_dict_generator_tab(self):
+        """创建字典生成器标签页"""
+        function_logger.debug("HashcatGUI.create_dict_generator_tab called")
+        dict_gen_widget = QWidget()
+        self.tab_widget.addTab(dict_gen_widget, "字典生成器")
+        
+        layout = QVBoxLayout(dict_gen_widget)
+        
+        # 创建滚动区域
+        scroll_area = QScrollArea()
+        scroll_widget = QWidget()
+        scroll_layout = QVBoxLayout(scroll_widget)
+        
+        # 基础字典生成
+        basic_container = QWidget()
+        basic_container_layout = QVBoxLayout(basic_container)
+        basic_container_layout.setContentsMargins(5, 5, 5, 5)
+        basic_container_layout.setSpacing(5)
+        
+        # 标题行：标题 + 启用复选框
+        basic_header_layout = QHBoxLayout()
+        basic_header_layout.setContentsMargins(0, 0, 0, 0)
+        basic_header_layout.setSpacing(10)
+        basic_title_label = QLabel("基础字典生成")
+        basic_title_label.setStyleSheet("font-weight: bold; font-size: 12px; margin: 0px; padding: 2px;")
+        self.basic_enable_check = QCheckBox("启用")
+        self.basic_enable_check.setChecked(True)
+        self.basic_enable_check.stateChanged.connect(self.toggle_basic_controls)
+        self.basic_enable_check.setStyleSheet("margin: 0px; padding: 2px;")
+        basic_header_layout.addWidget(basic_title_label)
+        basic_header_layout.addWidget(self.basic_enable_check)
+        basic_header_layout.addStretch()
+        basic_container_layout.addLayout(basic_header_layout)
+        
+        # 内容区域
+        basic_group = QGroupBox()
+        basic_group.setStyleSheet("QGroupBox { border: 1px solid gray; margin: 2px; padding: 3px; }")
+        
+        basic_layout = QGridLayout(basic_group)
+        
+        # 长度设置和字符集选择（合并到一行）
+        basic_layout.addWidget(QLabel("密码设置:"), 1, 0)
+        length_charset_layout = QHBoxLayout()
+        
+        # 长度设置部分
+        length_charset_layout.addWidget(QLabel("长度:"))
+        length_charset_layout.addWidget(QLabel("最小:"))
+        self.min_length_spin = QSpinBox()
+        self.min_length_spin.setRange(1, 20)
+        self.min_length_spin.setValue(4)
+        length_charset_layout.addWidget(self.min_length_spin)
+        
+        length_charset_layout.addWidget(QLabel("最大:"))
+        self.max_length_spin = QSpinBox()
+        self.max_length_spin.setRange(1, 20)
+        self.max_length_spin.setValue(8)
+        length_charset_layout.addWidget(self.max_length_spin)
+        
+        # 分隔符
+        length_charset_layout.addWidget(QLabel("|"))
+        
+        # 字符集选择部分
+        length_charset_layout.addWidget(QLabel("字符集:"))
+        self.charset_checks = {}
+        
+        self.charset_checks['lowercase'] = QCheckBox("小写")
+        self.charset_checks['lowercase'].setChecked(True)
+        length_charset_layout.addWidget(self.charset_checks['lowercase'])
+        
+        self.charset_checks['uppercase'] = QCheckBox("大写")
+        length_charset_layout.addWidget(self.charset_checks['uppercase'])
+        
+        self.charset_checks['digits'] = QCheckBox("数字")
+        self.charset_checks['digits'].setChecked(True)
+        length_charset_layout.addWidget(self.charset_checks['digits'])
+        
+        self.charset_checks['symbols'] = QCheckBox("符号")
+        length_charset_layout.addWidget(self.charset_checks['symbols'])
+        
+        length_charset_layout.addStretch()
+        basic_layout.addLayout(length_charset_layout, 1, 1, 1, 2)
+        
+        # 自定义字符集
+        basic_layout.addWidget(QLabel("自定义字符:"), 2, 0)
+        self.custom_charset_edit = QLineEdit()
+        self.custom_charset_edit.setPlaceholderText("例如: 中文字符、特殊符号等")
+        basic_layout.addWidget(self.custom_charset_edit, 2, 1, 1, 2)
+        
+        basic_container_layout.addWidget(basic_group)
+        scroll_layout.addWidget(basic_container)
+        
+        # 社工字典生成
+        social_container = QWidget()
+        social_container_layout = QVBoxLayout(social_container)
+        social_container_layout.setContentsMargins(5, 5, 5, 5)
+        social_container_layout.setSpacing(5)
+        
+        # 标题行：标题 + 启用复选框
+        social_header_layout = QHBoxLayout()
+        social_header_layout.setContentsMargins(0, 0, 0, 0)
+        social_header_layout.setSpacing(10)
+        social_title_label = QLabel("社工字典生成")
+        social_title_label.setStyleSheet("font-weight: bold; font-size: 12px; margin: 0px; padding: 2px;")
+        self.social_enable_check = QCheckBox("启用")
+        self.social_enable_check.setChecked(True)
+        self.social_enable_check.stateChanged.connect(self.toggle_social_controls)
+        self.social_enable_check.setStyleSheet("margin: 0px; padding: 2px;")
+        social_header_layout.addWidget(social_title_label)
+        social_header_layout.addWidget(self.social_enable_check)
+        social_header_layout.addStretch()
+        social_container_layout.addLayout(social_header_layout)
+        
+        # 内容区域
+        social_group = QGroupBox()
+        social_group.setStyleSheet("QGroupBox { border: 1px solid gray; margin: 2px; padding: 3px; }")
+        
+        social_layout = QGridLayout(social_group)
+        
+        # 个人信息
+        social_layout.addWidget(QLabel("姓名:"), 0, 0)
+        self.name_edit = QLineEdit()
+        self.name_edit.setPlaceholderText("例如: 张三、zhangsan")
+        social_layout.addWidget(self.name_edit, 0, 1)
+        
+        social_layout.addWidget(QLabel("生日:"), 0, 2)
+        self.birthday_edit = QLineEdit()
+        self.birthday_edit.setPlaceholderText("例如: 19900101、0101")
+        social_layout.addWidget(self.birthday_edit, 0, 3)
+        
+        social_layout.addWidget(QLabel("电话:"), 1, 0)
+        self.phone_edit = QLineEdit()
+        self.phone_edit.setPlaceholderText("例如: 13812345678")
+        social_layout.addWidget(self.phone_edit, 1, 1)
+        
+        social_layout.addWidget(QLabel("QQ/微信:"), 1, 2)
+        self.qq_edit = QLineEdit()
+        self.qq_edit.setPlaceholderText("例如: 123456789")
+        social_layout.addWidget(self.qq_edit, 1, 3)
+        
+        social_layout.addWidget(QLabel("公司/学校:"), 2, 0)
+        self.company_edit = QLineEdit()
+        self.company_edit.setPlaceholderText("例如: 阿里巴巴、清华大学")
+        social_layout.addWidget(self.company_edit, 2, 1)
+        
+        social_layout.addWidget(QLabel("爱好/宠物:"), 2, 2)
+        self.hobby_edit = QLineEdit()
+        self.hobby_edit.setPlaceholderText("例如: 篮球、小狗")
+        social_layout.addWidget(self.hobby_edit, 2, 3)
+        
+        # 年份范围和常用后缀（合并到一行）
+        social_layout.addWidget(QLabel("后缀设置:"), 3, 0)
+        year_suffix_layout = QHBoxLayout()
+        
+        # 年份范围部分
+        self.year_checkbox = QCheckBox("年份:")
+        year_suffix_layout.addWidget(self.year_checkbox)
+        year_suffix_layout.addWidget(QLabel("从:"))
+        self.start_year_spin = QSpinBox()
+        self.start_year_spin.setRange(1950, 2030)
+        self.start_year_spin.setValue(1980)
+        self.start_year_spin.setEnabled(False)  # 默认禁用
+        year_suffix_layout.addWidget(self.start_year_spin)
+        
+        year_suffix_layout.addWidget(QLabel("到:"))
+        self.end_year_spin = QSpinBox()
+        self.end_year_spin.setRange(1950, 2030)
+        self.end_year_spin.setValue(2024)
+        self.end_year_spin.setEnabled(False)  # 默认禁用
+        year_suffix_layout.addWidget(self.end_year_spin)
+        
+        # 分隔符
+        year_suffix_layout.addWidget(QLabel("|"))
+        
+        # 常用后缀部分
+        year_suffix_layout.addWidget(QLabel("常用后缀:"))
+        self.suffix_checks = {}
+        suffixes = ['123', '666', '888', '!', '@', '#', '520', '1314', '2024']
+        for suffix in suffixes:
+            self.suffix_checks[suffix] = QCheckBox(suffix)
+            year_suffix_layout.addWidget(self.suffix_checks[suffix])
+        
+        year_suffix_layout.addStretch()
+        social_layout.addLayout(year_suffix_layout, 3, 1, 1, 3)
+        
+        social_container_layout.addWidget(social_group)
+        scroll_layout.addWidget(social_container)
+        
+        # 手动添加字典条目
+        manual_container = QWidget()
+        manual_container_layout = QVBoxLayout(manual_container)
+        manual_container_layout.setContentsMargins(5, 5, 5, 5)
+        manual_container_layout.setSpacing(5)
+        
+        # 标题行：标题 + 启用复选框
+        manual_header_layout = QHBoxLayout()
+        manual_header_layout.setContentsMargins(0, 0, 0, 0)
+        manual_header_layout.setSpacing(10)
+        manual_title_label = QLabel("手动添加字典条目")
+        manual_title_label.setStyleSheet("font-weight: bold; font-size: 12px; margin: 0px; padding: 2px;")
+        self.manual_enable_check = QCheckBox("启用")
+        self.manual_enable_check.setChecked(True)
+        self.manual_enable_check.stateChanged.connect(self.toggle_manual_controls)
+        self.manual_enable_check.setStyleSheet("margin: 0px; padding: 2px;")
+        manual_header_layout.addWidget(manual_title_label)
+        manual_header_layout.addWidget(self.manual_enable_check)
+        manual_header_layout.addStretch()
+        manual_container_layout.addLayout(manual_header_layout)
+        
+        # 内容区域
+        manual_group = QGroupBox()
+        manual_group.setStyleSheet("QGroupBox { border: 1px solid gray; margin: 2px; padding: 3px; }")
+        
+        manual_layout = QGridLayout(manual_group)
+        
+        # 输入框和添加按钮
+        manual_layout.addWidget(QLabel("添加密码:"), 0, 0)
+        self.manual_password_edit = QLineEdit()
+        self.manual_password_edit.setPlaceholderText("输入要添加的密码...")
+        self.manual_password_edit.returnPressed.connect(self.add_manual_password)
+        manual_layout.addWidget(self.manual_password_edit, 0, 1)
+        
+        self.add_password_btn = QPushButton("添加")
+        self.add_password_btn.clicked.connect(self.add_manual_password)
+        manual_layout.addWidget(self.add_password_btn, 0, 2)
+        
+        # 已添加的密码列表
+        manual_layout.addWidget(QLabel("已添加的密码:"), 1, 0)
+        self.manual_passwords_list = QTextEdit()
+        self.manual_passwords_list.setMaximumHeight(150)
+        self.manual_passwords_list.setPlaceholderText("手动添加的密码将显示在这里...")
+        self.manual_passwords_list.setReadOnly(True)
+        manual_layout.addWidget(self.manual_passwords_list, 1, 1, 1, 2)
+        
+        # 操作按钮
+        manual_btn_layout = QHBoxLayout()
+        self.clear_manual_btn = QPushButton("清空列表")
+        self.clear_manual_btn.clicked.connect(self.clear_manual_passwords)
+        manual_btn_layout.addWidget(self.clear_manual_btn)
+        
+        self.import_manual_btn = QPushButton("从文件导入")
+        self.import_manual_btn.clicked.connect(self.import_manual_passwords)
+        manual_btn_layout.addWidget(self.import_manual_btn)
+        
+        manual_btn_layout.addStretch()
+        manual_layout.addLayout(manual_btn_layout, 2, 1, 1, 2)
+        
+        # 手动密码计数标签
+        self.manual_count_label = QLabel("手动添加: 0 条")
+        self.manual_count_label.setStyleSheet("color: green; font-weight: bold;")
+        manual_layout.addWidget(self.manual_count_label, 2, 0)
+        
+        manual_container_layout.addWidget(manual_group)
+        scroll_layout.addWidget(manual_container)
+        
+        # 预览和生成控制
+        control_group = QGroupBox("预览和生成")
+        control_layout = QGridLayout(control_group)
+        
+        # 预览按钮和信息
+        preview_layout = QHBoxLayout()
+        self.preview_btn = QPushButton("预览字典")
+        self.preview_btn.clicked.connect(self.preview_dictionary)
+        preview_layout.addWidget(self.preview_btn)
+        
+        self.dict_info_label = QLabel("预计条数: 0 | 预计大小: 0 KB")
+        self.dict_info_label.setStyleSheet("color: blue; font-weight: bold;")
+        preview_layout.addWidget(self.dict_info_label)
+        
+        preview_layout.addStretch()
+        control_layout.addLayout(preview_layout, 0, 0, 1, 2)
+        
+        # 预览文本框
+        self.preview_text = QTextEdit()
+        self.preview_text.setMaximumHeight(200)
+        self.preview_text.setPlaceholderText("点击'预览字典'查看生成的密码样例...")
+        control_layout.addWidget(self.preview_text, 1, 0, 1, 2)
+        
+        # 文件名和生成按钮
+        control_layout.addWidget(QLabel("文件名:"), 2, 0)
+        filename_layout = QHBoxLayout()
+        
+        self.filename_edit = QLineEdit("custom_dict.txt")
+        filename_layout.addWidget(self.filename_edit)
+        
+        self.generate_btn = QPushButton("生成字典")
+        self.generate_btn.clicked.connect(self.generate_dictionary)
+        self.generate_btn.setStyleSheet("QPushButton { background-color: #4CAF50; color: white; font-weight: bold; padding: 8px; }")
+        filename_layout.addWidget(self.generate_btn)
+        
+        control_layout.addLayout(filename_layout, 2, 1)
+        
+        scroll_layout.addWidget(control_group)
+        
+        # 初始化手动密码列表
+        self.manual_passwords = set()  # 使用set避免重复
+        
+        # 连接信号
+        for checkbox in self.charset_checks.values():
+            checkbox.toggled.connect(self.update_dict_preview)
+        
+        self.custom_charset_edit.textChanged.connect(self.update_dict_preview)
+        self.min_length_spin.valueChanged.connect(self.update_dict_preview)
+        self.max_length_spin.valueChanged.connect(self.update_dict_preview)
+        
+        for edit in [self.name_edit, self.birthday_edit, self.phone_edit, self.qq_edit, self.company_edit, self.hobby_edit]:
+            edit.textChanged.connect(self.update_dict_preview)
+        
+        for checkbox in self.suffix_checks.values():
+            checkbox.toggled.connect(self.update_dict_preview)
+        
+        self.year_checkbox.toggled.connect(self.toggle_year_controls)
+        self.year_checkbox.toggled.connect(self.update_dict_preview)
+        self.start_year_spin.valueChanged.connect(self.update_dict_preview)
+        self.end_year_spin.valueChanged.connect(self.update_dict_preview)
+        
+        scroll_area.setWidget(scroll_widget)
+        scroll_area.setWidgetResizable(True)
+        layout.addWidget(scroll_area)
+    
+    def update_dict_preview(self):
+        """更新字典预览信息"""
+        try:
+            # 计算基础字典大小
+            basic_count = 0
+            if self.basic_enable_check.isChecked():
+                charset = ""
+                if self.charset_checks['lowercase'].isChecked():
+                    charset += "abcdefghijklmnopqrstuvwxyz"
+                if self.charset_checks['uppercase'].isChecked():
+                    charset += "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+                if self.charset_checks['digits'].isChecked():
+                    charset += "0123456789"
+                if self.charset_checks['symbols'].isChecked():
+                    charset += "!@#$%^&*()_+-=[]{}|;:,.<>?"
+                
+                custom_chars = self.custom_charset_edit.text().strip()
+                if custom_chars:
+                    charset += custom_chars
+                
+                min_len = self.min_length_spin.value()
+                max_len = self.max_length_spin.value()
+                
+                # 确保最小长度不大于最大长度
+                if min_len > max_len:
+                    self.max_length_spin.setValue(min_len)
+                    max_len = min_len
+                
+                if charset:
+                    charset_len = len(set(charset))  # 去重
+                    for length in range(min_len, max_len + 1):
+                        basic_count += charset_len ** length
+            
+            # 计算社工字典大小
+            social_count = self.calculate_social_dict_size() if self.social_enable_check.isChecked() else 0
+            
+            # 计算手动添加的密码数量
+            manual_count = 0
+            if self.manual_enable_check.isChecked() and hasattr(self, 'manual_passwords'):
+                manual_count = len(self.manual_passwords)
+            
+            total_count = basic_count + social_count + manual_count
+            
+            # 使用更精确的文件大小估算
+            estimated_size = self._calculate_estimated_file_size()
+            
+            # 格式化显示
+            if estimated_size < 1024:
+                size_str = f"{estimated_size:.0f} B"
+            elif estimated_size < 1024 * 1024:
+                size_str = f"{estimated_size / 1024:.1f} KB"
+            elif estimated_size < 1024 * 1024 * 1024:
+                size_str = f"{estimated_size / (1024 * 1024):.1f} MB"
+            else:
+                size_str = f"{estimated_size / (1024 * 1024 * 1024):.1f} GB"
+            
+            # 格式化条数显示
+            if total_count < 1000:
+                count_str = str(total_count)
+            elif total_count < 1000000:
+                count_str = f"{total_count / 1000:.1f}K"
+            elif total_count < 1000000000:
+                count_str = f"{total_count / 1000000:.1f}M"
+            else:
+                count_str = f"{total_count / 1000000000:.1f}B"
+            
+            # 检查是否超过1GB阈值
+            size_limit_gb = 1.0
+            size_limit_bytes = size_limit_gb * 1024 * 1024 * 1024
+            
+            if estimated_size > size_limit_bytes:
+                warning_text = f"预计条数: {count_str} | 预计大小: {size_str} ⚠️ 超过1GB阈值！"
+                self.dict_info_label.setText(warning_text)
+                self.dict_info_label.setStyleSheet("color: red; font-weight: bold; background-color: #ffe6e6; padding: 2px;")
+            else:
+                self.dict_info_label.setText(f"预计条数: {count_str} | 预计大小: {size_str}")
+                
+                # 根据大小设置颜色
+                if total_count > 10000000:  # 超过1000万条
+                    self.dict_info_label.setStyleSheet("color: red; font-weight: bold;")
+                elif total_count > 1000000:  # 超过100万条
+                    self.dict_info_label.setStyleSheet("color: orange; font-weight: bold;")
+                else:
+                    self.dict_info_label.setStyleSheet("color: blue; font-weight: bold;")
+                
+        except Exception as e:
+            function_logger.error(f"更新字典预览失败: {e}")
+            self.dict_info_label.setText("预计条数: 计算错误 | 预计大小: 未知")
+            self.dict_info_label.setStyleSheet("color: red; font-weight: bold;")
+    
+    def calculate_social_dict_size(self):
+        """计算社工字典大小"""
+        social_count = 0
+        
+        # 收集所有信息
+        all_info = []
+        
+        name = self.name_edit.text().strip()
+        if name:
+            name_variants = self.process_chinese_name(name)
+            all_info.extend(name_variants)
+        
+        birthday = self.birthday_edit.text().strip()
+        if birthday:
+            all_info.append(birthday)
+            # 添加生日的各种变形
+            if len(birthday) == 8:  # YYYYMMDD格式
+                all_info.extend([birthday[2:], birthday[4:], birthday[6:]])
+            elif len(birthday) == 4:  # MMDD格式
+                all_info.append(birthday)
+        
+        phone = self.phone_edit.text().strip()
+        if phone:
+            all_info.append(phone)
+            if len(phone) == 11:  # 手机号
+                all_info.extend([phone[3:], phone[7:], phone[-4:]])
+        
+        qq = self.qq_edit.text().strip()
+        if qq:
+            all_info.append(qq)
+        
+        company = self.company_edit.text().strip()
+        if company:
+            # 对于中文公司名，转换为拼音
+            if any('\u4e00' <= char <= '\u9fff' for char in company):
+                company_variants = self.process_chinese_name(company)
+                all_info.extend(company_variants)
+            else:
+                all_info.extend([company, company.lower(), company.upper()])
+        
+        hobby = self.hobby_edit.text().strip()
+        if hobby:
+            # 对于中文爱好，转换为拼音
+            if any('\u4e00' <= char <= '\u9fff' for char in hobby):
+                hobby_variants = self.process_chinese_name(hobby)
+                all_info.extend(hobby_variants)
+            else:
+                all_info.extend([hobby, hobby.lower(), hobby.upper()])
+        
+        # 年份
+        years = []
+        if self.year_checkbox.isChecked():
+            for year in range(self.start_year_spin.value(), self.end_year_spin.value() + 1):
+                years.extend([str(year), str(year)[2:]])
+        
+        # 后缀
+        suffixes = []
+        for suffix, checkbox in self.suffix_checks.items():
+            if checkbox.isChecked():
+                suffixes.append(suffix)
+        
+        # 计算组合数量
+        if all_info:
+            unique_all_info = list(set(all_info))
+            total_unique_count = len(unique_all_info)
+            
+            # 基础信息
+            social_count += total_unique_count
+            
+            # 信息 + 年份（双向组合）
+            if years:
+                social_count += total_unique_count * len(years) * 2  # info+year 和 year+info
+            
+            # 信息 + 后缀
+            social_count += total_unique_count * len(suffixes)
+            
+            # 信息 + 年份 + 后缀（双向组合）
+            if years:
+                social_count += total_unique_count * len(years) * len(suffixes) * 2  # info+year+suffix 和 year+info+suffix
+            
+            # 年份 + 后缀（双向组合）
+            if years:
+                social_count += len(years) * len(suffixes) * 2  # year+suffix 和 suffix+year
+            
+            # 双信息组合（避免同一来源信息的重复组合）
+            # 分离名字信息和其他信息
+            name_count = 0
+            other_count = 0
+            
+            if name:
+                name_variants = self.process_chinese_name(name)
+                name_count = len(set(name_variants))
+            
+            # 计算其他信息数量（生日、电话、QQ、公司、爱好）
+            other_info_count = total_unique_count - name_count
+            
+            # 名字信息与其他信息的组合
+            if name_count > 0 and other_info_count > 0:
+                social_count += name_count * other_info_count * 2  # name+other 和 other+name
+            
+            # 其他信息之间的组合（估算，排除同源信息）
+            if other_info_count > 1:
+                # 保守估计，减少同源信息组合
+                estimated_combinations = max(0, other_info_count * (other_info_count - 1) // 2 - 3)
+                social_count += estimated_combinations * 2  # info1+info2 和 info2+info1
+        
+        return social_count
+    
+    def _calculate_estimated_file_size(self):
+        """计算预估的字典文件大小（字节）"""
+        try:
+            # 计算基础字典大小
+            basic_count = 0
+            avg_basic_length = 0
+            
+            if self.basic_enable_check.isChecked():
+                charset = ""
+                if self.charset_checks['lowercase'].isChecked():
+                    charset += "abcdefghijklmnopqrstuvwxyz"
+                if self.charset_checks['uppercase'].isChecked():
+                    charset += "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+                if self.charset_checks['digits'].isChecked():
+                    charset += "0123456789"
+                if self.charset_checks['symbols'].isChecked():
+                    charset += "!@#$%^&*()_+-=[]{}|;:,.<>?"
+                
+                custom_chars = self.custom_charset_edit.text().strip()
+                if custom_chars:
+                    charset += custom_chars
+                
+                min_len = self.min_length_spin.value()
+                max_len = self.max_length_spin.value()
+                
+                if charset:
+                    charset_len = len(set(charset))  # 去重
+                    
+                    # 对于固定长度的情况（如8位纯数字），直接计算
+                    if min_len == max_len:
+                        basic_count = charset_len ** min_len
+                        avg_basic_length = min_len
+                    else:
+                        total_length = 0
+                        for length in range(min_len, max_len + 1):
+                            count_for_length = charset_len ** length
+                            basic_count += count_for_length
+                            total_length += count_for_length * length
+                        
+                        if basic_count > 0:
+                            avg_basic_length = total_length / basic_count
+                        else:
+                            avg_basic_length = (min_len + max_len) / 2
+            
+            # 计算社工字典大小
+            social_count = self.calculate_social_dict_size() if self.social_enable_check.isChecked() else 0
+            avg_social_length = 10  # 假设社工字典平均长度为10个字符
+            
+            # 计算手动添加的密码数量
+            manual_count = 0
+            avg_manual_length = 8
+            if self.manual_enable_check.isChecked() and hasattr(self, 'manual_passwords'):
+                manual_count = len(self.manual_passwords)
+                if manual_count > 0:
+                    total_manual_length = sum(len(pwd) for pwd in self.manual_passwords)
+                    avg_manual_length = total_manual_length / manual_count
+            
+            # 计算总的预估大小（每行额外加1字节用于换行符）
+            estimated_size = (
+                basic_count * (avg_basic_length + 1) +
+                social_count * (avg_social_length + 1) +
+                manual_count * (avg_manual_length + 1)
+            )
+            
+            return estimated_size
+            
+        except Exception as e:
+            function_logger.error(f"计算预估文件大小失败: {e}")
+            return 0
+    
+    def preview_dictionary(self):
+        """预览字典内容"""
+        try:
+            preview_lines = []
+            max_preview = 50  # 最多预览50行
+            
+            # 生成基础字典样例
+            if self.basic_enable_check.isChecked():
+                charset = ""
+                if self.charset_checks['lowercase'].isChecked():
+                    charset += "abcdefghijklmnopqrstuvwxyz"
+                if self.charset_checks['uppercase'].isChecked():
+                    charset += "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+                if self.charset_checks['digits'].isChecked():
+                    charset += "0123456789"
+                if self.charset_checks['symbols'].isChecked():
+                    charset += "!@#$%^&*()_+-=[]{}|;:,.<>?"
+                
+                custom_chars = self.custom_charset_edit.text().strip()
+                if custom_chars:
+                    charset += custom_chars
+                
+                if charset:
+                    charset = ''.join(set(charset))  # 去重
+                    min_len = self.min_length_spin.value()
+                    
+                    # 生成一些基础字典样例
+                    import itertools
+                    count = 0
+                    for length in range(min_len, min(min_len + 3, self.max_length_spin.value() + 1)):
+                        for combo in itertools.product(charset, repeat=length):
+                            if count >= max_preview // 2:
+                                break
+                            preview_lines.append(''.join(combo))
+                            count += 1
+                        if count >= max_preview // 2:
+                            break
+            
+            # 生成社工字典样例
+            if self.social_enable_check.isChecked():
+                remaining_preview = max_preview - len(preview_lines)
+                social_samples = self.generate_social_samples(remaining_preview // 2 if remaining_preview > 0 else 0)
+                preview_lines.extend(social_samples)
+            
+            # 添加手动密码样例
+            if self.manual_enable_check.isChecked() and hasattr(self, 'manual_passwords') and self.manual_passwords:
+                remaining_preview = max_preview - len(preview_lines)
+                if remaining_preview > 0:
+                    manual_samples = list(self.manual_passwords)[:remaining_preview]
+                    if manual_samples:
+                        preview_lines.append("\n--- 手动添加的密码 ---")
+                        preview_lines.extend(manual_samples)
+            
+            if preview_lines:
+                self.preview_text.setPlainText('\n'.join(preview_lines[:max_preview]))
+                if len(preview_lines) >= max_preview:
+                    current_text = self.preview_text.toPlainText()
+                    self.preview_text.setPlainText(current_text + "\n\n... (仅显示前50行样例)")
+            else:
+                self.preview_text.setPlainText("请先配置字典生成参数")
+                
+        except Exception as e:
+            function_logger.error(f"预览字典失败: {e}")
+            self.preview_text.setPlainText(f"预览失败: {str(e)}")
+    
+    def generate_social_samples(self, max_count):
+        """生成社工字典样例"""
+        samples = []
+        
+        # 收集所有信息
+        all_info = []
+        
+        name = self.name_edit.text().strip()
+        if name:
+            name_variants = self.process_chinese_name(name)
+            all_info.extend(name_variants)
+        
+        birthday = self.birthday_edit.text().strip()
+        if birthday:
+            all_info.append(birthday)
+            # 添加生日的各种变形
+            if len(birthday) == 8:  # YYYYMMDD格式
+                all_info.extend([birthday[2:], birthday[4:], birthday[6:]])
+            elif len(birthday) == 4:  # MMDD格式
+                all_info.append(birthday)
+        
+        phone = self.phone_edit.text().strip()
+        if phone:
+            all_info.append(phone)
+            if len(phone) == 11:  # 手机号
+                all_info.extend([phone[3:], phone[7:], phone[-4:]])
+        
+        qq = self.qq_edit.text().strip()
+        if qq:
+            all_info.append(qq)
+        
+        company = self.company_edit.text().strip()
+        if company:
+            # 对于中文公司名，转换为拼音
+            if any('\u4e00' <= char <= '\u9fff' for char in company):
+                company_variants = self.process_chinese_name(company)
+                all_info.extend(company_variants)
+            else:
+                all_info.extend([company, company.lower(), company.upper()])
+        
+        hobby = self.hobby_edit.text().strip()
+        if hobby:
+            # 对于中文爱好，转换为拼音
+            if any('\u4e00' <= char <= '\u9fff' for char in hobby):
+                hobby_variants = self.process_chinese_name(hobby)
+                all_info.extend(hobby_variants)
+            else:
+                all_info.extend([hobby, hobby.lower(), hobby.upper()])
+        
+        # 年份样例（取前几个和后几个）
+        years = []
+        if self.year_checkbox.isChecked():
+            start_year = self.start_year_spin.value()
+            end_year = self.end_year_spin.value()
+            for year in range(start_year, min(start_year + 3, end_year + 1)):
+                years.extend([str(year), str(year)[2:]])
+            if end_year > start_year + 2:
+                for year in range(max(end_year - 2, start_year + 3), end_year + 1):
+                    years.extend([str(year), str(year)[2:]])
+        
+        # 后缀样例
+        suffixes = []
+        for suffix, checkbox in self.suffix_checks.items():
+            if checkbox.isChecked():
+                suffixes.append(suffix)
+        
+        # 生成组合样例，按照实际生成逻辑
+        count = 0
+        
+        # 去重信息列表
+        unique_all_info = list(set(all_info))
+        
+        if unique_all_info:
+            # 基础信息
+            for info in unique_all_info[:min(5, max_count)]:
+                if count >= max_count:
+                    break
+                samples.append(info)
+                count += 1
+            
+            # 信息 + 年份
+            for info in unique_all_info[:3]:
+                for year in years[:3]:
+                    if count >= max_count:
+                        break
+                    samples.append(info + year)
+                    count += 1
+                if count >= max_count:
+                    break
+            
+            # 信息 + 后缀
+            for info in unique_all_info[:3]:
+                for suffix in suffixes[:3]:
+                    if count >= max_count:
+                        break
+                    samples.append(info + suffix)
+                    count += 1
+                if count >= max_count:
+                    break
+            
+            # 信息 + 年份 + 后缀
+            for info in unique_all_info[:2]:
+                for year in years[:2]:
+                    for suffix in suffixes[:2]:
+                        if count >= max_count:
+                            break
+                        samples.append(info + year + suffix)
+                        count += 1
+                    if count >= max_count:
+                        break
+                if count >= max_count:
+                    break
+            
+            # 双信息组合样本（避免同一来源信息的重复组合）
+            # 分离名字信息和其他信息
+            sample_name_info = []
+            sample_other_info = []
+            
+            if name:
+                name_variants = self.process_chinese_name(name)
+                sample_name_info = list(set(name_variants))[:3]  # 取前3个名字变体
+            
+            # 其他信息（排除名字信息）
+            for info in unique_all_info:
+                if info not in sample_name_info:
+                    sample_other_info.append(info)
+            sample_other_info = sample_other_info[:3]  # 取前3个其他信息
+            
+            # 名字信息与其他信息的组合
+            for name_variant in sample_name_info:
+                for other in sample_other_info:
+                    if count >= max_count:
+                        break
+                    samples.append(name_variant + other)
+                    count += 1
+                    if count >= max_count:
+                        break
+                    samples.append(other + name_variant)
+                    count += 1
+                if count >= max_count:
+                    break
+            
+            # 其他信息之间的组合（简化，只取少量样本）
+            if len(sample_other_info) > 1:
+                for i, info1 in enumerate(sample_other_info[:2]):
+                    for info2 in sample_other_info[i+1:2]:
+                        if count >= max_count:
+                            break
+                        samples.append(info1 + info2)
+                        count += 1
+                    if count >= max_count:
+                        break
+        
+        # 年份 + 后缀
+        for year in years[:3]:
+            for suffix in suffixes[:3]:
+                if count >= max_count:
+                    break
+                samples.append(year + suffix)
+                count += 1
+            if count >= max_count:
+                break
+        
+        return samples[:max_count]
+    
+    def generate_dictionary(self):
+        """生成字典文件"""
+        try:
+            filename = self.filename_edit.text().strip()
+            if not filename:
+                QMessageBox.warning(self, "警告", "请输入文件名")
+                return
+            
+            if not filename.endswith('.txt'):
+                filename += '.txt'
+            
+            # 检查预计文件大小是否超过1GB阈值
+            estimated_size = self._calculate_estimated_file_size()
+            size_limit_gb = 1.0  # 1GB阈值
+            size_limit_bytes = size_limit_gb * 1024 * 1024 * 1024
+            
+            if estimated_size > size_limit_bytes:
+                size_gb = estimated_size / (1024 * 1024 * 1024)
+                reply = QMessageBox.warning(self, "警告", 
+                    f"预计生成的字典文件大小约为 {size_gb:.2f} GB，超过了 {size_limit_gb} GB 的安全阈值。\n\n"
+                    f"生成如此大的字典可能会：\n"
+                    f"• 占用大量磁盘空间\n"
+                    f"• 消耗大量内存和CPU资源\n"
+                    f"• 导致程序响应缓慢或崩溃\n\n"
+                    f"建议：\n"
+                    f"• 减少字符集范围\n"
+                    f"• 降低最大密码长度\n"
+                    f"• 减少社工字典的信息输入\n\n"
+                    f"是否仍要继续生成？",
+                    QMessageBox.Yes | QMessageBox.No,
+                    QMessageBox.No)
+                if reply != QMessageBox.Yes:
+                    return
+            
+            # 创建dic目录
+            import os
+            dic_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'dic')
+            os.makedirs(dic_dir, exist_ok=True)
+            
+            filepath = os.path.join(dic_dir, filename)
+            
+            # 检查文件是否存在
+            if os.path.exists(filepath):
+                reply = QMessageBox.question(self, "确认", f"文件 {filename} 已存在，是否覆盖？",
+                                           QMessageBox.Yes | QMessageBox.No)
+                if reply != QMessageBox.Yes:
+                    return
+            
+            # 显示进度对话框
+            progress = QProgressDialog("正在生成字典...", "取消", 0, 100, self)
+            progress.setWindowTitle("生成字典")
+            progress.setWindowModality(Qt.WindowModal)
+            # 设置窗口图标，避免显示？图标
+            if hasattr(self, 'windowIcon') and not self.windowIcon().isNull():
+                progress.setWindowIcon(self.windowIcon())
+            progress.show()
+            
+            QApplication.processEvents()
+            
+            with open(filepath, 'w', encoding='utf-8') as f:
+                written_count = 0
+                
+                # 生成基础字典
+                if self.basic_enable_check.isChecked():
+                    charset = ""
+                    if self.charset_checks['lowercase'].isChecked():
+                        charset += "abcdefghijklmnopqrstuvwxyz"
+                    if self.charset_checks['uppercase'].isChecked():
+                        charset += "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+                    if self.charset_checks['digits'].isChecked():
+                        charset += "0123456789"
+                    if self.charset_checks['symbols'].isChecked():
+                        charset += "!@#$%^&*()_+-=[]{}|;:,.<>?"
+                    
+                    custom_chars = self.custom_charset_edit.text().strip()
+                    if custom_chars:
+                        charset += custom_chars
+                    
+                    if charset:
+                        charset = ''.join(set(charset))  # 去重
+                        min_len = self.min_length_spin.value()
+                        max_len = self.max_length_spin.value()
+                        
+                        import itertools
+                        total_basic = sum(len(charset) ** length for length in range(min_len, max_len + 1))
+                        current_basic = 0
+                        
+                        for length in range(min_len, max_len + 1):
+                            for combo in itertools.product(charset, repeat=length):
+                                if progress.wasCanceled():
+                                    f.close()
+                                    os.remove(filepath)
+                                    return
+                                
+                                f.write(''.join(combo) + '\n')
+                                written_count += 1
+                                current_basic += 1
+                                
+                                if current_basic % 1000 == 0:
+                                    progress.setValue(int(40 * current_basic / total_basic))
+                                    QApplication.processEvents()
+                        
+                        # 基础字典生成完成，设置进度为40%
+                        progress.setValue(40)
+                
+                else:
+                    # 如果没有启用基础字典，直接设置进度为40%
+                    progress.setValue(40)
+                QApplication.processEvents()
+                
+                # 生成社工字典
+                if self.social_enable_check.isChecked():
+                    social_passwords = self.generate_social_passwords()
+                    total_social = len(social_passwords)
+                    
+                    for i, password in enumerate(social_passwords):
+                        if progress.wasCanceled():
+                            f.close()
+                            os.remove(filepath)
+                            return
+                        
+                        f.write(password + '\n')
+                        written_count += 1
+                        
+                        if i % 100 == 0:
+                            progress.setValue(40 + int(40 * i / max(total_social, 1)))
+                            QApplication.processEvents()
+                
+                progress.setValue(80)
+                QApplication.processEvents()
+                
+                # 添加手动输入的密码
+                if self.manual_enable_check.isChecked() and hasattr(self, 'manual_passwords'):
+                    manual_count = len(self.manual_passwords)
+                    for i, password in enumerate(self.manual_passwords):
+                        if progress.wasCanceled():
+                            f.close()
+                            os.remove(filepath)
+                            return
+                        
+                        f.write(password + '\n')
+                        written_count += 1
+                        
+                        if manual_count > 0 and i % 10 == 0:
+                            progress.setValue(80 + int(20 * i / manual_count))
+                            QApplication.processEvents()
+            
+            progress.setValue(100)
+            progress.close()
+            
+            # 获取文件大小
+            file_size = os.path.getsize(filepath)
+            if file_size < 1024:
+                size_str = f"{file_size} B"
+            elif file_size < 1024 * 1024:
+                size_str = f"{file_size / 1024:.1f} KB"
+            elif file_size < 1024 * 1024 * 1024:
+                size_str = f"{file_size / (1024 * 1024):.1f} MB"
+            else:
+                size_str = f"{file_size / (1024 * 1024 * 1024):.1f} GB"
+            
+            QMessageBox.information(self, "成功", 
+                                  f"字典生成完成！\n\n"
+                                  f"文件路径: {filepath}\n"
+                                  f"总条数: {written_count:,}\n"
+                                  f"文件大小: {size_str}")
+            
+        except Exception as e:
+            function_logger.error(f"生成字典失败: {e}")
+            QMessageBox.critical(self, "错误", f"生成字典失败: {str(e)}")
+    
+    def generate_social_passwords(self):
+        """生成社工字典密码列表"""
+        passwords = set()  # 使用set去重
+        
+        # 收集所有信息
+        all_info = []
+        
+        name = self.name_edit.text().strip()
+        if name:
+            name_variants = self.process_chinese_name(name)
+            all_info.extend(name_variants)
+        
+        birthday = self.birthday_edit.text().strip()
+        if birthday:
+            all_info.append(birthday)
+            # 生日变形
+            if len(birthday) == 8:  # YYYYMMDD
+                all_info.extend([birthday[2:], birthday[4:], birthday[6:]])
+            elif len(birthday) == 4:  # MMDD
+                all_info.append(birthday)
+        
+        phone = self.phone_edit.text().strip()
+        if phone:
+            all_info.append(phone)
+            if len(phone) == 11:  # 手机号变形
+                all_info.extend([phone[3:], phone[7:], phone[-4:]])
+        
+        qq = self.qq_edit.text().strip()
+        if qq:
+            all_info.append(qq)
+        
+        company = self.company_edit.text().strip()
+        if company:
+            # 对于中文公司名，转换为拼音
+            if any('\u4e00' <= char <= '\u9fff' for char in company):
+                company_variants = self.process_chinese_name(company)
+                all_info.extend(company_variants)
+            else:
+                all_info.extend([company, company.lower(), company.upper()])
+        
+        hobby = self.hobby_edit.text().strip()
+        if hobby:
+            # 对于中文爱好，转换为拼音
+            if any('\u4e00' <= char <= '\u9fff' for char in hobby):
+                hobby_variants = self.process_chinese_name(hobby)
+                all_info.extend(hobby_variants)
+            else:
+                all_info.extend([hobby, hobby.lower(), hobby.upper()])
+        
+        # 年份列表
+        years = []
+        if self.year_checkbox.isChecked():
+            for year in range(self.start_year_spin.value(), self.end_year_spin.value() + 1):
+                years.extend([str(year), str(year)[2:]])
+        
+        # 后缀列表
+        suffixes = []
+        for suffix, checkbox in self.suffix_checks.items():
+            if checkbox.isChecked():
+                suffixes.append(suffix)
+        
+        # 生成密码组合
+        # 1. 基础信息
+        for info in all_info:
+            if info:
+                passwords.add(info)
+        
+        # 2. 信息 + 年份
+        for info in all_info:
+            for year in years:
+                if info:
+                    passwords.add(info + year)
+                    passwords.add(year + info)
+        
+        # 3. 信息 + 后缀
+        for info in all_info:
+            for suffix in suffixes:
+                if info:
+                    passwords.add(info + suffix)
+        
+        # 4. 信息 + 年份 + 后缀
+        for info in all_info:
+            for year in years:
+                for suffix in suffixes:
+                    if info:
+                        passwords.add(info + year + suffix)
+                        passwords.add(year + info + suffix)
+        
+        # 5. 年份 + 后缀
+        for year in years:
+            for suffix in suffixes:
+                passwords.add(year + suffix)
+                passwords.add(suffix + year)
+        
+        # 6. 双信息组合（避免同一来源信息的重复组合）
+        # 分离不同来源的信息
+        name_info = []
+        other_info = []
+        
+        # 重新分类信息，避免名字变体之间的组合
+        if name:
+            name_variants = self.process_chinese_name(name)
+            name_info.extend(name_variants)
+        
+        # 其他信息（生日、电话、QQ、公司、爱好）
+        if birthday:
+            other_info.append(birthday)
+            if len(birthday) == 8:
+                other_info.extend([birthday[2:], birthday[4:], birthday[6:]])
+            elif len(birthday) == 4:
+                other_info.append(birthday)
+        
+        if phone:
+            other_info.append(phone)
+            if len(phone) == 11:
+                other_info.extend([phone[3:], phone[7:], phone[-4:]])
+        
+        if qq:
+            other_info.append(qq)
+        
+        if company:
+            # 对于中文公司名，转换为拼音
+            if any('\u4e00' <= char <= '\u9fff' for char in company):
+                company_variants = self.process_chinese_name(company)
+                other_info.extend(company_variants)
+            else:
+                other_info.extend([company, company.lower(), company.upper()])
+        
+        if hobby:
+            # 对于中文爱好，转换为拼音
+            if any('\u4e00' <= char <= '\u9fff' for char in hobby):
+                hobby_variants = self.process_chinese_name(hobby)
+                other_info.extend(hobby_variants)
+            else:
+                other_info.extend([hobby, hobby.lower(), hobby.upper()])
+        
+        # 只允许名字信息与其他信息组合，避免名字变体之间的组合
+        for name_variant in name_info:
+            for other in other_info:
+                if name_variant and other and name_variant != other:
+                    passwords.add(name_variant + other)
+                    passwords.add(other + name_variant)
+        
+        # 其他信息之间的组合（排除同类型信息）
+        for i, info1 in enumerate(other_info):
+            for info2 in other_info[i+1:]:
+                if info1 and info2 and info1 != info2:
+                    # 避免同一来源的信息组合（如生日的不同变形）
+                    if not self._is_same_source_info(info1, info2, birthday, phone):
+                        passwords.add(info1 + info2)
+                        passwords.add(info2 + info1)
+        
+        return list(passwords)
+    
+    def _is_same_source_info(self, info1, info2, birthday, phone):
+        """判断两个信息是否来自同一来源"""
+        # 检查是否都是生日相关信息
+        if birthday:
+            birthday_variants = [birthday]
+            if len(birthday) == 8:
+                birthday_variants.extend([birthday[2:], birthday[4:], birthday[6:]])
+            elif len(birthday) == 4:
+                birthday_variants.append(birthday)
+            
+            if info1 in birthday_variants and info2 in birthday_variants:
+                return True
+        
+        # 检查是否都是电话相关信息
+        if phone and len(phone) == 11:
+            phone_variants = [phone, phone[3:], phone[7:], phone[-4:]]
+            if info1 in phone_variants and info2 in phone_variants:
+                return True
+        
+        return False
+    
+    def add_manual_password(self):
+        """添加手动输入的密码"""
+        password = self.manual_password_edit.text().strip()
+        if not password:
+            QMessageBox.warning(self, "警告", "请输入密码")
+            return
+        
+        if password in self.manual_passwords:
+            QMessageBox.information(self, "提示", "该密码已存在")
+            return
+        
+        # 添加到集合中
+        self.manual_passwords.add(password)
+        
+        # 更新显示
+        self.update_manual_passwords_display()
+        
+        # 清空输入框
+        self.manual_password_edit.clear()
+        
+        # 更新字典预览信息
+        self.update_dict_preview()
+    
+    def clear_manual_passwords(self):
+        """清空手动添加的密码列表"""
+        if not self.manual_passwords:
+            return
+        
+        reply = QMessageBox.question(self, "确认", "确定要清空所有手动添加的密码吗？",
+                                   QMessageBox.Yes | QMessageBox.No)
+        if reply == QMessageBox.Yes:
+            self.manual_passwords.clear()
+            self.update_manual_passwords_display()
+            self.update_dict_preview()
+    
+    def import_manual_passwords(self):
+        """从文件导入密码"""
+        file_path, _ = QFileDialog.getOpenFileName(self, "选择密码文件", "", "文本文件 (*.txt);;所有文件 (*.*)")
+        if not file_path:
+            return
+        
+        try:
+            imported_count = 0
+            duplicate_count = 0
+            
+            with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+                for line in f:
+                    password = line.strip()
+                    if password:  # 忽略空行
+                        if password in self.manual_passwords:
+                            duplicate_count += 1
+                        else:
+                            self.manual_passwords.add(password)
+                            imported_count += 1
+            
+            self.update_manual_passwords_display()
+            self.update_dict_preview()
+            
+            message = f"导入完成！\n\n新增密码: {imported_count} 条"
+            if duplicate_count > 0:
+                message += f"\n重复密码: {duplicate_count} 条（已跳过）"
+            
+            QMessageBox.information(self, "导入结果", message)
+            
+        except Exception as e:
+            function_logger.error(f"导入密码文件失败: {e}")
+            QMessageBox.critical(self, "错误", f"导入失败: {str(e)}")
+    
+    def update_manual_passwords_display(self):
+        """更新手动密码显示"""
+        if self.manual_passwords:
+            # 按添加顺序显示（转换为列表并排序）
+            password_list = sorted(list(self.manual_passwords))
+            display_text = '\n'.join(password_list)
+            
+            # 如果密码太多，只显示前100个
+            if len(password_list) > 100:
+                display_list = password_list[:100]
+                display_text = '\n'.join(display_list)
+                display_text += f"\n\n... 还有 {len(password_list) - 100} 条密码未显示"
+            
+            self.manual_passwords_list.setPlainText(display_text)
+        else:
+            self.manual_passwords_list.setPlainText("")
+        
+        # 更新计数标签
+        count = len(self.manual_passwords)
+        self.manual_count_label.setText(f"手动添加: {count} 条")
+        
+        # 根据数量设置颜色
+        if count == 0:
+            self.manual_count_label.setStyleSheet("color: gray; font-weight: bold;")
+        elif count < 100:
+            self.manual_count_label.setStyleSheet("color: green; font-weight: bold;")
+        elif count < 1000:
+            self.manual_count_label.setStyleSheet("color: orange; font-weight: bold;")
+        else:
+            self.manual_count_label.setStyleSheet("color: red; font-weight: bold;")
+    
+    def toggle_basic_controls(self, checked):
+        """切换基础字典生成控件的启用状态"""
+        self.min_length_spin.setEnabled(checked)
+        self.max_length_spin.setEnabled(checked)
+        for checkbox in self.charset_checks.values():
+            checkbox.setEnabled(checked)
+        self.custom_charset_edit.setEnabled(checked)
+        self.update_dict_preview()
+    
+    def toggle_social_controls(self, checked):
+        """切换社工字典生成控件的启用状态"""
+        self.name_edit.setEnabled(checked)
+        self.birthday_edit.setEnabled(checked)
+        self.phone_edit.setEnabled(checked)
+        self.qq_edit.setEnabled(checked)
+        self.company_edit.setEnabled(checked)
+        self.hobby_edit.setEnabled(checked)
+        for checkbox in self.suffix_checks.values():
+            checkbox.setEnabled(checked)
+        self.year_checkbox.setEnabled(checked)
+        # 年份控件的启用状态由年份复选框控制
+        if checked and self.year_checkbox.isChecked():
+            self.start_year_spin.setEnabled(True)
+            self.end_year_spin.setEnabled(True)
+        else:
+            self.start_year_spin.setEnabled(False)
+            self.end_year_spin.setEnabled(False)
+        self.update_dict_preview()
+    
+    def toggle_year_controls(self, checked):
+        """切换年份控件的启用状态"""
+        # 只有在社工字典启用时才能控制年份控件
+        if self.social_enable_check.isChecked():
+            self.start_year_spin.setEnabled(checked)
+            self.end_year_spin.setEnabled(checked)
+    
+    def toggle_manual_controls(self, checked):
+        """切换手动添加控件的启用状态"""
+        self.manual_password_edit.setEnabled(checked)
+        self.add_password_btn.setEnabled(checked)
+        self.manual_passwords_list.setEnabled(checked)
+        self.clear_manual_btn.setEnabled(checked)
+        self.import_manual_btn.setEnabled(checked)
+        self.update_dict_preview()
     
     def create_help_tab(self):
         """创建帮助文档标签页"""
@@ -4033,6 +5468,9 @@ class HashcatGUI(QMainWindow):
         }
         # 设置爆破进行中标志
         self.is_cracking = True
+        
+        # 重置破解成功检测标志
+        self.crack_success_detected = False
         self.update_status_bar()
         
         # 获取命令
@@ -4154,6 +5592,9 @@ class HashcatGUI(QMainWindow):
                     
                     # 额外验证：确保不包含错误关键词
                     if not any(keyword in password_part for keyword in ["exception", "error", "failed"]):
+                        # 设置破解成功检测标志
+                        self.crack_success_detected = True
+                        
                         # 构建带格式的HTML文本
                         highlighted_text = text.replace(
                             f"{hash_part}:{password_part}",
@@ -4203,16 +5644,38 @@ class HashcatGUI(QMainWindow):
         # 重置爆破进行中标志
         self.is_cracking = False
         
-        if return_code == 0:
-            # 使用HTML格式显示红色加粗的"破解完成!"
-            cursor = self.log_text.textCursor()
-            cursor.movePosition(cursor.End)
-            cursor.insertHtml("<br><span style='color: red; font-weight: 900; font-size: 14px;'>破解完成!</span><br>")
-            self.statusBar().showMessage("破解完成")
-        else:
-            self.log_text.append(f"\n破解结束，返回码: {return_code}")
-            self.statusBar().showMessage("破解结束")
+        # 根据hashcat状态码文档：
+        # 0 = OK/cracked (命令正常执行，但不一定找到破解结果)
+        # 1 = exhausted (穷尽所有可能性但未找到结果)
+        # 2 = aborted (用户中止)
+        # 其他负数 = 各种错误
         
+        if return_code == 0:
+            # 返回码0只表示命令正常执行，不一定意味着破解成功
+            # 只有在实际检测到hash:password格式的输出时才算真正破解成功
+            # 这里不再自动显示"破解完成"，而是根据实际输出内容判断
+            if hasattr(self, 'crack_success_detected') and self.crack_success_detected:
+                # 如果之前检测到了破解成功，显示破解完成
+                cursor = self.log_text.textCursor()
+                cursor.movePosition(cursor.End)
+                cursor.insertHtml("<br><span style='color: red; font-weight: 900; font-size: 14px;'>破解完成!</span><br>")
+                self.statusBar().showMessage("破解完成")
+            else:
+                # 命令正常结束但未检测到破解结果
+                self.log_text.append("\n任务执行完成")
+                self.statusBar().showMessage("任务完成")
+        elif return_code == 1:
+            self.log_text.append("\n已穷尽所有可能性，未找到匹配的密码")
+            self.statusBar().showMessage("未找到密码")
+        elif return_code == 2:
+            self.log_text.append("\n任务被中止")
+            self.statusBar().showMessage("任务中止")
+        else:
+            self.log_text.append(f"\n任务结束，返回码: {return_code}")
+            self.statusBar().showMessage("任务结束")
+        
+        # 重置破解成功检测标志
+        self.crack_success_detected = False
         self.worker = None
     
     def on_crack_success(self, hash_part, password_part):
@@ -4553,6 +6016,61 @@ class HashcatGUI(QMainWindow):
             self.mask_edit.setText(mask)
             # 重置模板选择为自定义
             self.mask_template_combo.setCurrentText("自定义")
+    
+    def calculate_main_candidates(self):
+        """计算主界面掩码的候选数量"""
+        function_logger.debug("HashcatGUI.calculate_main_candidates called")
+        mask = self.mask_edit.text().strip()
+        if not mask:
+            self.main_candidates_label.setText("预计候选数量: 无掩码")
+            self.main_candidates_label.setStyleSheet("color: gray; font-weight: bold; font-size: 12px;")
+            return
+        
+        try:
+            total = 1
+            i = 0
+            while i < len(mask):
+                if mask[i] == '?' and i + 1 < len(mask):
+                    char_type = mask[i + 1]
+                    if char_type == 'l':  # 小写字母
+                        total *= 26
+                    elif char_type == 'u':  # 大写字母
+                        total *= 26
+                    elif char_type == 'd':  # 数字
+                        total *= 10
+                    elif char_type == 's':  # 符号
+                        total *= 33  # 常见符号数量
+                    elif char_type == 'a':  # 所有字符
+                        total *= 95  # 可打印ASCII字符
+                    elif char_type in '1234':  # 自定义字符集
+                        # 根据实际的自定义字符集长度计算
+                        if char_type == '1' and self.charset1_edit.text().strip():
+                            total *= len(self.charset1_edit.text().strip())
+                        elif char_type == '2' and self.charset2_edit.text().strip():
+                            total *= len(self.charset2_edit.text().strip())
+                        elif char_type == '3' and self.charset3_edit.text().strip():
+                            total *= len(self.charset3_edit.text().strip())
+                        elif char_type == '4' and self.charset4_edit.text().strip():
+                            total *= len(self.charset4_edit.text().strip())
+                        else:
+                            total *= 10  # 默认值
+                    i += 2
+                else:
+                    i += 1
+            
+            if total > 1e12:
+                self.main_candidates_label.setText(f"预计候选数量: {total:.2e} (非常大!)")
+                self.main_candidates_label.setStyleSheet("color: red; font-weight: bold; font-size: 12px;")
+            elif total > 1e9:
+                self.main_candidates_label.setText(f"预计候选数量: {total:.2e} (很大)")
+                self.main_candidates_label.setStyleSheet("color: orange; font-weight: bold; font-size: 12px;")
+            else:
+                self.main_candidates_label.setText(f"预计候选数量: {total:,}")
+                self.main_candidates_label.setStyleSheet("color: blue; font-weight: bold; font-size: 12px;")
+        except Exception as e:
+            function_logger.error(f"计算候选数量时出错: {e}")
+            self.main_candidates_label.setText("预计候选数量: 计算错误")
+            self.main_candidates_label.setStyleSheet("color: red; font-weight: bold; font-size: 12px;")
     
     def browse_batch_file(self):
         """浏览批量哈希文件"""

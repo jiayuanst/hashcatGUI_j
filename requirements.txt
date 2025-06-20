@@ -1,0 +1,27 @@
+# HashcatGUI Requirements
+# GUI Framework
+PyQt5>=5.15.0
+
+# Chinese Pinyin Support (optional)
+pypinyin>=0.44.0
+
+# Standard library modules (included with Python)
+# sys
+# os
+# json
+# subprocess
+# threading
+# time
+# logging
+# locale
+# datetime
+# typing
+# functools
+
+# Note: This application is designed for Windows and requires:
+# - Python 3.7+
+# - Hashcat (external tool, not a Python package)
+# - John the Ripper (external tool, not a Python package)
+
+# Installation instructions:
+# pip install -r requirements.txt
